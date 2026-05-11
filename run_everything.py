@@ -62,11 +62,17 @@ def main():
 
     # Rebuild candidate context
     candidate_context = "--- MASTER RESUME ---\n"
-    candidate_context += extract_resume_text("YSouayah_MasterResume.pdf")
+    candidate_context += extract_resume_text("Souayah_Youssef_Master_Resume.docx-5.pdf")
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
         candidate_context += extract_resume_text("transcript.pdf")
-
+    # =====================================================================
+# IMPORTANT: API KEY SETUP
+# To run this agent locally, you must set your Gemini API key in your terminal first.
+# Run this command in your terminal before executing the script:
+# Mac/Linux: export GEMINI_API_KEY="your_api_key_here"
+# Windows: set GEMINI_API_KEY="your_api_key_here"
+# =====================================================================
     genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
     model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.3})
 

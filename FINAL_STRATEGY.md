@@ -1,18 +1,24 @@
 Here is the career strategy report for Youssef Souayah:
 
+---
+
 ## Elite Career Strategy Report
 
-### Top Target Roles (Score 90/100 or Higher)
+**Client:** Youssef Souayah
+**Objective:** Secure an interview for high-match roles.
 
 ---
 
-**Job Title:** Business/Systems Analyst Co-Op | Compliance & Data | July- Dec 2026
-**Company:** MIT Lincoln Laboratory
-**Platform:** Indeed
-**Match Score:** 90/100
+### Top Target Roles (Score 90/100 or Higher)
+
+**1. Research & Policy Intelligence Associate/Intern**
+*   **Company:** Daemo AI
+*   **Platform:** LinkedIn
+*   **Match Score:** 90/100
 
 **Gameplay:**
+1.  **Resume Refinement:** Revamp your resume to prominently feature your "AI-Powered Legislative Data Infrastructure" project, emphasizing the "AI-driven framework to audit legislative datasets for transparency and bias" and "automating analytical tasks." Highlight your "Dugree - Political Analyst Intern" role, specifically where you "assisted with training an AI model in identifying biases and risk factors." Integrate keywords like "legislative tracking," "policy monitoring," and "data collection and analysis" throughout your experience.
+2.  **Tailored Cover Letter:** Craft a compelling cover letter that directly addresses Daemo AI's mission to build "private intelligence tools for government affairs and public policy firms." Articulate how your dual degree in Political Science and Data Science, combined with your practical experience in AI and policy research, makes you an ideal fit. Specifically mention your interest in "automating legislative tracking" and "policy monitoring" and how your debate background (public speaking, constructing arguments on complex policy) prepares you for understanding "nuanced conversations" and "client-facing materials."
+3.  **LinkedIn & Direct Outreach:** Identify key individuals at Daemo AI on LinkedIn, particularly founders or those in research/policy roles. Send a personalized connection request mentioning your specific alignment with their work (e.g., "Deeply impressed by Daemo AI's innovative approach to legislative intelligence. As a Political Science & Data Science major with experience in AI-driven policy auditing, I see strong synergy with your mission. Would you be open to a brief chat?"). If possible, follow up with a polite email referencing your application and connection request.
 
-1.  **Tailored Application Focus:** Craft a resume and cover letter that directly addresses the "Compliance & Data" aspect of the role. Emphasize Youssef's dual degree in Political Science and Data Science, highlighting coursework like "Data, Society, and AI Ethics" and "Social Justice for Data Science." Explicitly link his "Code Auditing" experience from MITES Saturdays and his "programming automation" skills to the job's requirement for "automated systems and processes" and "automating functions."
-2.  **Highlight Presentation & Analytical Prowess:** Showcase Youssef's "demonstrated capabilities in presenting ideas written and orally" by detailing his extensive debate experience (Top Speaker awards, volunteer judge, mentor) and his mock trial participation in Judicial Youth Corps. Provide concrete examples of how he has used analytical tools (Python, Excel, PowerBI, R) to "develop and enhance business intelligence" and "analyze practices, policies and procedures," aligning with the job's duties.
-3.  **Leverage MIT Connection & Network:** Proactively search LinkedIn for MIT Lincoln Laboratory employees, particularly those with "Business Analyst," "Data," or "Compliance" in their titles. Reach out for informational interviews, mentioning his MITES Saturdays experience to establish an immediate connection and demonstrate his long-standing interest and familiarity with the MIT ecosystem. In the interview, be prepared to discuss his MITES projects (Dreamlight, automatic dome) as examples of creative problem-solving and technical application.
+---
