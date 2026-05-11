@@ -4,8 +4,8 @@ An automated, end-to-end Python pipeline that acts as a personalized AI recruite
 
 ## ⚙️ How It Works
 1. **The Brainstormer:** Generates highly specific search queries based on target industries.
-2. **The Extractors:** Uses Playwright to run headless, stealth web scraping across platforms like Handshake, Indeed, and LinkedIn.
-3. **The Sifter (Gemini 2.5 Flash):** Analyzes raw job descriptions against an academic and professional profile (Data Science & Political Science dual-degree) and a provided resume/transcript.
+2. **The Extractors:** Uses Playwright to run headless, stealth web scraping across platforms (currently supports Handshake, Indeed, and LinkedIn).
+3. **The Sifter (Gemini 2.5 Flash):** Analyzes raw job descriptions against the user's specific academic and professional profile by dynamically reading their provided `resume.pdf` and other provided documents.
 4. **The Grader:** Scores the filtered jobs on a 1-100 rubric, looking for specific intersections of AI, policy, ethics, and geopolitical data.
 5. **The Notifier:** Automatically compiles the top results into a Markdown strategy report and securely emails it to the user.
 
