@@ -12,11 +12,49 @@ def run_script(script_name):
         print(f"!!! Error running {script_name}. Pipeline paused. !!!")
         exit(1)
 
+def classify_and_load_rubric(job_title, job_description, model):
+    """
+    Acts as a triage agent. Classifies the job and loads the appropriate grading rubric.
+    """
+    classifier_prompt = f"""
+    You are a career triage agent. Look at this job:
+    Title: {job_title}
+    Description: {job_description}
+
+    Classify this job into EXACTLY ONE of these three categories based on its primary focus:
+    1. LEGAL_POLICY (Focuses on compliance, ethics, geopolitical analysis, or public policy)
+    2. TECHNICAL_DATA (Focuses on coding, machine learning, data engineering, or heavy analytics)
+    3. GENERAL (Standard corporate, consulting, or administrative roles that don't fit the above)
+
+    Respond with ONLY the category name. Do not include any other text.
+    """
+
+    # 1. Ask Gemini to classify the job
+    response = model.generate_content(classifier_prompt)
+    category = response.text.strip().upper()
+
+    # 2. Route to the correct rubric file
+    if "LEGAL" in category:
+        file_path = "rubrics/legal_policy.txt"
+        print(f" -> Triage: Routed '{job_title}' to Legal/Policy Rubric.")
+    elif "TECHNICAL" in category:
+        file_path = "rubrics/technical_data.txt"
+        print(f" -> Triage: Routed '{job_title}' to Technical/Data Rubric.")
+    else:
+        file_path = "rubrics/general.txt"
+        print(f" -> Triage: Routed '{job_title}' to General Rubric.")
+
+    # 3. Load and return the rubric text
+    with open(file_path, "r") as f:
+        rubric_text = f.read()
+
+    return rubric_text, category
+
 def main():
     print("==================================================")
     print("      INITIALIZING AI RECRUITER PIPELINE          ")
     print("==================================================")
-    #export GEMINI_API_KEY = "Insert Key Here" <-- write in your terminal. I did not hard encode a key.
+
     if not os.environ.get("GEMINI_API_KEY"):
         print("ERROR: GEMINI_API_KEY environment variable not found.")
         return
@@ -33,7 +71,6 @@ def main():
     print("\n--- COMPILING & FILTERING JOB DATA ---")
     from database_manager import init_db, is_job_seen, mark_job_seen
     
-    # Make sure the database exists
     init_db()
     
     raw_jobs = []
@@ -42,52 +79,42 @@ def main():
             with open(file, "r") as f:
                 raw_jobs.extend(json.load(f))
                 
-    print(f"Total raw jobs scraped across all platforms: {len(raw_jobs)}")
+    print(f"Total raw jobs scraped: {len(raw_jobs)}")
     
-    # Filter out jobs we've already seen
     fresh_jobs = []
     for job in raw_jobs:
         if not is_job_seen(job['url']):
             fresh_jobs.append(job)
-            # Mark it as seen so we don't process it next week
             mark_job_seen(job['url'])
             
-    print(f"Total FRESH, unseen jobs for the AI to evaluate: {len(fresh_jobs)}")
+    print(f"Total FRESH jobs for evaluation: {len(fresh_jobs)}")
     
     if len(fresh_jobs) == 0:
         print("No new jobs found this week. Sleeping until next run.")
-        return # Stops the script early so we don't waste AI tokens!
+        return
 
     jobs_str = json.dumps(fresh_jobs, indent=2)
 
-    # Rebuild candidate context
+    # Rebuild candidate context (Generalized filename for GitHub)
     candidate_context = "--- MASTER RESUME ---\n"
-    candidate_context += extract_resume_text("resume.pdf") #Replace with your specific resume
+    candidate_context += extract_resume_text("Souayah_Youssef_Master_Resume.docx-5.pdf")
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
         candidate_context += extract_resume_text("transcript.pdf")
-    # =====================================================================
-# IMPORTANT: API KEY SETUP
-# To run this agent locally, you must set your Gemini API key in your terminal first.
-# Run this command in your terminal before executing the script:
-# Mac/Linux: export GEMINI_API_KEY="your_api_key_here"
-# Windows: set GEMINI_API_KEY="your_api_key_here"
-# =====================================================================
+
     genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
     model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.3})
 
-    # --- PHASE 4: The Sifter (Finding the Top 15) ---
-    print("\n--- PHASE 4: THE SIFTER (SELECTING TARGETS FOR DEEP DIVE) ---")
+    # --- PHASE 4: The Sifter ---
+    print("\n--- PHASE 4: THE SIFTER (SELECTING TARGETS) ---")
     sift_prompt = f"""
     You are an elite recruiter. Here is your client's profile:
     {candidate_context}
 
-    Here is a massive list of raw job preview cards:
-    {jobs_str}
+    Review these job cards and select the Top 15 roles.
+    Jobs: {jobs_str}
 
-    Your task:
-    Review the preview cards. Select the Top 15 roles that look the MOST promising for this candidate's dual Political Science/Data Science background. 
-    Output ONLY a valid JSON array of the original JSON objects for the 15 jobs you selected. Do not add markdown or text. Just the raw JSON array.
+    Output ONLY a valid JSON array of the objects for the 15 jobs selected.
     """
     
     sifter_response = model.generate_content(sift_prompt)
@@ -99,57 +126,77 @@ def main():
             json.dump(sifted_jobs, f, indent=4)
         print("Sifter successfully selected the Top 15 targets.")
     except Exception as e:
-        print("Error parsing Sifter JSON. The AI might have included text. Ending pipeline.")
+        print(f"Error parsing Sifter JSON: {e}")
         return
 
     # --- PHASE 5: The Deep Scrape ---
     run_script("deep_scraper.py")
 
-    # --- PHASE 6: The Final Grader ---
+    # --- PHASE 6: THE FINAL GRADER ---
     print("\n--- PHASE 6: THE FINAL GRADER (WRITING THE PLAYBOOK) ---")
+    
+    if not os.path.exists("deep_jobs.json"):
+        print("No deep scraped data found. Ending pipeline.")
+        return
+
     with open("deep_jobs.json", "r") as f:
-        deep_jobs_data = json.dumps(json.load(f), indent=2)
+        final_targets = json.load(f)
 
-    grade_prompt = f"""
-    You are an elite career strategist. Here is your client's profile:
-    {candidate_context}
+    full_report_content = "# 🎯 Weekly AI Job Strategy: High-Probability Matches\n\n"
+    high_match_found = False
 
-    Here is the FULL TEXT of the job descriptions for our top targets:
-    {deep_jobs_data}
+    print(f"Analyzing {len(final_targets)} descriptions against dynamic rubrics...")
 
-    Your task:
-    1. Read every full job description and compare it to the client's profile.
-    2. Calculate a Match Score out of 100 based STRICTLY on this rubric:
-       - BASELINE TECHNICAL (30 Pts): Explicitly requires data analysis, Python, APIs, web scraping, or AI.
-       - BASELINE DOMAIN (30 Pts): Operates in a policy, government, legal, geopolitical, or ethical sector.
-       - EXPERIENCE MATCH (20 Pts): Is an internship/entry-level role (0-2 years). Subtract 10 pts for every year required over 2.
-       - UNICORN MULTIPLIERS (20 Pts): Award 5 pts for EACH of the following explicit mentions:
-            1. Trilingual skills / French / Arabic / MENA regions.
-            2. Algorithmic bias / AI ethics / Code auditing.
-            3. Public speaking / Debate / Presenting to non-technical stakeholders.
-            4. Web automation / Playwright / Data pipelines.
-            
-    3. Filter the list and select EVERY role where the calculated score is 90/100 or higher.
-    4. For ALL selected jobs, provide:
-       - The Job Title, Company, and Platform.
-       - Match Score (e.g., 95/100).
-       - The "Gameplay": A highly tactical 3-step plan to secure the interview. Do NOT include a breakdown or reasoning for the score.
+    for job in final_targets:
+        title = job.get("title", "Unknown Title")
+        company = job.get("company", "Unknown Company")
+        desc = job.get("description", "")
 
-    Output this as a clean text report formatted beautifully using markdown. If no jobs score 90 or higher, inform the client and suggest what skills were missing from the search.
-    """
+        # 1. Triage: Pick the right rubric
+        current_rubric, category_label = classify_and_load_rubric(title, desc, model)
 
-    print("Analyzing full descriptions and grading against the Unicorn Rubric...")
-    final_response = model.generate_content(grade_prompt)
+        # 2. Grade
+        grade_prompt = f"""
+        You are an elite career strategist. 
+        CANDIDATE BACKGROUND: {candidate_context}
+        RUBRIC ({category_label}): {current_rubric}
+
+        JOB: {title} at {company}
+        DESCRIPTION: {desc}
+
+        TASK:
+        1. Calculate a Match Score out of 100 based on the rubric.
+        2. If score >= 85, provide a 3-step 'Gameplan'.
+        3. If score < 85, respond ONLY with 'SKIP'.
+        
+        OUTPUT FORMAT (If score >= 85):
+        ## {title} | {company}
+        **Match Score:** [Score]/100
+        **Category:** {category_label}
+        **Gameplan:**
+        - [Step 1]
+        - [Step 2]
+        - [Step 3]
+        ---
+        """
+
+        response = model.generate_content(grade_prompt)
+        result_text = response.text.strip()
+
+        if "SKIP" not in result_text.upper():
+            full_report_content += result_text + "\n"
+            high_match_found = True
+
+    if not high_match_found:
+        full_report_content += "No high-scoring matches found in this batch."
 
     with open("FINAL_STRATEGY.md", "w") as f:
-        f.write(final_response.text)
+        f.write(full_report_content)
 
     print("\n=======================================================")
-    print(" PIPELINE COMPLETE! ")
-    print(" Open 'FINAL_STRATEGY.md' to see your True Unicorn matches. ")
+    print(" PIPELINE COMPLETE! Report generated in FINAL_STRATEGY.md ")
     print("=======================================================")
     
-    # Send the email report
     from notifier import send_strategy_report
     send_strategy_report("ysouayah@bu.edu")
 
