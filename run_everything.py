@@ -21,7 +21,7 @@ def main():
         print("ERROR: GEMINI_API_KEY environment variable not found.")
         return
 
-    # --- PHASE 1-3: Brainstorm & Surface Scrape ---
+    # --- PHASE 1 and 2: Brainstorm & Surface Scrape ---
     run_script("brainstormer.py")
     
     print("\n--- DEPLOYING EXTRACTION FLEET ---")
