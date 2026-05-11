@@ -16,13 +16,18 @@ def send_strategy_report(recipient_email):
     msg = EmailMessage()
     msg.set_content(report_content)
     msg["Subject"] = "🎯 Weekly AI Job Strategy: High-Probability Matches"
-    msg["From"] = os.environ.get("EMAIL_USER")
+    
+    # These pull securely from the terminal environment we set up!
+    sender_email = os.environ.get("EMAIL_USER")
+    sender_password = os.environ.get("EMAIL_PASS")
+    
+    msg["From"] = sender_email
     msg["To"] = recipient_email
 
     try:
         # Standard Gmail SMTP settings
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(os.environ.get("EMAIL_USER"), os.environ.get("EMAIL_PASS"))
+            smtp.login(sender_email, sender_password)
             smtp.send_message(msg)
         print("Report successfully emailed!")
     except Exception as e:
