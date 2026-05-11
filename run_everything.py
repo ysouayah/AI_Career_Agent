@@ -16,7 +16,7 @@ def main():
     print("==================================================")
     print("      INITIALIZING AI RECRUITER PIPELINE          ")
     print("==================================================")
-
+    #export GEMINI_API_KEY = "Insert Key Here" <-- write in your terminal. I did not hard encode a key.
     if not os.environ.get("GEMINI_API_KEY"):
         print("ERROR: GEMINI_API_KEY environment variable not found.")
         return
