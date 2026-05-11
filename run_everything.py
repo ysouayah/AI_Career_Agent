@@ -62,7 +62,7 @@ def main():
 
     # Rebuild candidate context
     candidate_context = "--- MASTER RESUME ---\n"
-    candidate_context += extract_resume_text("Souayah_Youssef_Master_Resume.docx-5.pdf")
+    candidate_context += extract_resume_text("resume.pdf") #Replace with your specific resume
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
         candidate_context += extract_resume_text("transcript.pdf")
