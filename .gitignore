@@ -17,3 +17,6 @@ sifted_jobs.json
 
 # Ignore local database files
 *.db
+
+# Ignore Mac system files
+.DS_Store
