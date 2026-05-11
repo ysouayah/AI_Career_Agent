@@ -1,0 +1,16 @@
+# Ignore API keys and environment variables
+.env
+
+# Ignore personal documents
+*.pdf
+
+# Ignore authentication tokens and state files
+handshake_state.json
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Optional: Ignore the scraped job lists if you don't want them public
+*_jobs.json
+sifted_jobs.json
