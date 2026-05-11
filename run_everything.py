@@ -29,15 +29,36 @@ def main():
     run_script("linkedin_extractor.py")
     run_script("indeed_extractor.py")
 
-    print("\n--- COMPILING JOB DATA ---")
-    all_jobs = []
+    # --- PHASE 3: Compiling the Data & Checking Memory ---
+    print("\n--- COMPILING & FILTERING JOB DATA ---")
+    from database_manager import init_db, is_job_seen, mark_job_seen
+    
+    # Make sure the database exists
+    init_db()
+    
+    raw_jobs = []
     for file in ["handshake_jobs.json", "linkedin_jobs.json", "indeed_jobs.json"]:
         if os.path.exists(file):
             with open(file, "r") as f:
-                all_jobs.extend(json.load(f))
+                raw_jobs.extend(json.load(f))
                 
-    print(f"Total jobs scraped across all platforms: {len(all_jobs)}")
-    jobs_str = json.dumps(all_jobs, indent=2)
+    print(f"Total raw jobs scraped across all platforms: {len(raw_jobs)}")
+    
+    # Filter out jobs we've already seen
+    fresh_jobs = []
+    for job in raw_jobs:
+        if not is_job_seen(job['url']):
+            fresh_jobs.append(job)
+            # Mark it as seen so we don't process it next week
+            mark_job_seen(job['url'])
+            
+    print(f"Total FRESH, unseen jobs for the AI to evaluate: {len(fresh_jobs)}")
+    
+    if len(fresh_jobs) == 0:
+        print("No new jobs found this week. Sleeping until next run.")
+        return # Stops the script early so we don't waste AI tokens!
+
+    jobs_str = json.dumps(fresh_jobs, indent=2)
 
     # Rebuild candidate context
     candidate_context = "--- MASTER RESUME ---\n"
@@ -121,6 +142,10 @@ def main():
     print(" PIPELINE COMPLETE! ")
     print(" Open 'FINAL_STRATEGY.md' to see your True Unicorn matches. ")
     print("=======================================================")
+    
+    # Send the email report
+    from notifier import send_strategy_report
+    send_strategy_report("ysouayah@bu.edu")
 
 if __name__ == "__main__":
     main()
