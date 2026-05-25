@@ -3,68 +3,60 @@ import json
 import google.generativeai as genai
 from resume_parser import extract_resume_text
 
-# --- 1. THE CONTEXT PIPELINE (Your Code!) ---
-# Make sure your actual resume PDF name matches here
-candidate_context = "--- MASTER RESUME ---\n"
-candidate_context += extract_resume_text("YSouayah_MasterResume.pdf")
-transcript_file = "Transcript_BU001_U86211426-4.pdf"
+def main():
+    print("\n[brainstormer.py] >> Initiating sequence...")
+    
+    # 1. Grab the API Key
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("Error: GEMINI_API_KEY not found. Brainstormer cannot run.")
+        return
+        
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.4})
 
-if os.path.exists(transcript_file):
-    print("Optional transcript detected! Adding to AI context...")
-    candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
-    candidate_context += extract_resume_text(transcript_file)
-else:
-    print("No transcript found. Proceeding with Resume only.")
+    # 2. Read the Candidate Context FIRST
+    candidate_context = "--- MASTER RESUME ---\n"
+    if os.path.exists("resume.pdf"):
+        candidate_context += extract_resume_text("resume.pdf")
+    else:
+        print("Warning: resume.pdf not found. Generating generic queries.")
 
-# --- 2. THE AI ENGINE ---
-# Make sure your API key is set in your terminal environment variables!
-# export GEMINI_API_KEY="your_api_key_here"
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+    if os.path.exists("transcript.pdf"):
+        candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
+        candidate_context += extract_resume_text("transcript.pdf")
 
-def brainstorm_jobs(context_text):
-    print("\nThinking... Asking Gemini to brainstorm niche roles based on your profile...")
+    # 3. Ask Gemini to generate the absolute best search queries based ON the resume
+    query_prompt = f"""
+    You are an elite technical recruiter. Analyze this candidate's profile:
+    {candidate_context}
+
+    Based strictly on their unique intersection of skills, generate the 5 most high-probability job search queries we should type into a job board (like Handshake or LinkedIn) to find their perfect role. 
     
-    # We use Flash here because it's fast and perfect for text analysis
-    model = genai.GenerativeModel('gemini-2.5-flash') 
+    Focus on their specific intersections (e.g., if they have policy and data skills, do not just search "Data Analyst", search "AI Policy Analyst" or "Data Governance").
     
-    prompt = f"""
-    You are an elite technical and political recruiter. Review the following candidate profile:
-    {context_text}
-    
-    Based strictly on their specific skills, experience, and education, generate a list of 5 to 8 highly specific job titles they have the best chance of landing. 
-    Do not just say "Data Analyst". Look for cross-sections of their skills (e.g., Public Policy Analyst, Legal Tech Researcher, Elections Data Coordinator).
-    
-    Return ONLY a valid JSON array of strings. Do not include markdown formatting, code blocks, or explanations. 
-    Example: ["Title 1", "Title 2", "Title 3"]
+    Output ONLY a valid JSON array of 5 strings. Do not include markdown formatting or any other text.
+    Example: ["AI Policy Analyst", "Geopolitical Data Scientist", "Ethical AI Engineer", ...]
     """
-    
-    response = model.generate_content(prompt)
-    
-    # --- 3. PARSE AND SAVE ---
+
+    print("Analyzing candidate profile to generate highly targeted search queries...")
+    response = model.generate_content(query_prompt)
+
+    # 4. Save the queries for the extractors to use
     try:
-        # Clean up the response just in case the AI added markdown blocks
-        clean_text = response.text.replace("```json", "").replace("```", "").strip()
-        job_titles = json.loads(clean_text)
+        clean_json = response.text.replace("```json", "").replace("```", "").strip()
+        target_queries = json.loads(clean_json)
         
-        print("\nSuccess! Here are your high-probability job targets:")
-        for i, title in enumerate(job_titles, 1):
-            print(f"{i}. {title}")
-            
-        # We save this array to a JSON file so our scrapers can loop through it later
         with open("target_queries.json", "w") as f:
-            json.dump(job_titles, f, indent=4)
+            json.dump(target_queries, f, indent=4)
             
-        print("\nSaved to 'target_queries.json'. Our scrapers are ready to hunt.")
-        
+        print(f"Success! Generated tailored queries: {target_queries}")
     except Exception as e:
-        print(f"\nFailed to parse AI response. Error: {e}")
-        print("Raw output was:")
-        print(response.text)
+        print(f"Error parsing Brainstormer JSON: {e}")
+        # Fallback queries just in case the AI hallucinates formatting
+        fallback = ["Data Analyst", "Policy Analyst", "Technical Project Manager"]
+        with open("target_queries.json", "w") as f:
+            json.dump(fallback, f)
 
 if __name__ == "__main__":
-    # Ensure the API key is actually set before running
-    if not os.environ.get("GEMINI_API_KEY"):
-        print("ERROR: GEMINI_API_KEY environment variable not found.")
-        print("Run this in your terminal first: export GEMINI_API_KEY='your_key'")
-    else:
-        brainstorm_jobs(candidate_context)
+    main()

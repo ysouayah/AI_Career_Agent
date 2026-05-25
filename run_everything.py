@@ -97,7 +97,12 @@ def main():
 
     # Rebuild candidate context (Generalized filename for GitHub)
     candidate_context = "--- MASTER RESUME ---\n"
-    candidate_context += extract_resume_text("Souayah_Youssef_Master_Resume.docx-5.pdf")
+    # Make sure you rename your file to 'resume.pdf' in the folder!
+    if os.path.exists("resume.pdf"):
+        candidate_context += extract_resume_text("resume.pdf") #change to your resume
+    else:
+        print("Warning: resume.pdf not found. Proceeding with limited context.")
+
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
         candidate_context += extract_resume_text("transcript.pdf")
@@ -132,7 +137,7 @@ def main():
     # --- PHASE 5: The Deep Scrape ---
     run_script("deep_scraper.py")
 
-    # --- PHASE 6: THE FINAL GRADER ---
+    # --- PHASE 6: THE FINAL GRADER (BATCHED OPTIMIZATION) ---
     print("\n--- PHASE 6: THE FINAL GRADER (WRITING THE PLAYBOOK) ---")
     
     if not os.path.exists("deep_jobs.json"):
@@ -142,56 +147,53 @@ def main():
     with open("deep_jobs.json", "r") as f:
         final_targets = json.load(f)
 
-    full_report_content = "# 🎯 Weekly AI Job Strategy: High-Probability Matches\n\n"
-    high_match_found = False
+    # Convert the list of jobs into a single string for the prompt
+    all_jobs_text = json.dumps(final_targets, indent=2)
 
-    print(f"Analyzing {len(final_targets)} descriptions against dynamic rubrics...")
+    print(f"Batch analyzing {len(final_targets)} descriptions to save API tokens...")
 
-    for job in final_targets:
-        title = job.get("title", "Unknown Title")
-        company = job.get("company", "Unknown Company")
-        desc = job.get("description", "")
+    batch_grade_prompt = f"""
+    You are an elite career strategist. 
+    
+    CANDIDATE BACKGROUND:
+    {candidate_context}
 
-        # 1. Triage: Pick the right rubric
-        current_rubric, category_label = classify_and_load_rubric(title, desc, model)
+    Here is a JSON array containing multiple job descriptions, which include their URLs:
+    {all_jobs_text}
 
-        # 2. Grade
-        grade_prompt = f"""
-        You are an elite career strategist. 
-        CANDIDATE BACKGROUND: {candidate_context}
-        RUBRIC ({category_label}): {current_rubric}
+    TASK:
+    1. Evaluate EVERY job in the array against the candidate's background.
+    2. Mentally categorize the job as LEGAL_POLICY, TECHNICAL_DATA, or GENERAL.
+    3. Calculate a Match Score out of 100.
+    4. If the score is 85 or higher, extract the job's URL from the JSON and provide a brief Gameplan.
+    
+    OUTPUT FORMAT:
+    Return a Markdown report containing ONLY the jobs that scored 85 or higher. 
+    You MUST format the job title as a clickable Markdown link using the exact URL from the JSON data. Do NOT add spaces between the brackets and parentheses. 
+    
+    Format each winner exactly like this:
+    
+    ## [INSERT_JOB_TITLE](INSERT_ACTUAL_URL_HERE)
+    
+    **Company:** 🏢 INSERT_COMPANY_NAME
+    **Match Score:** 🎯 [Score]/100  
+    **Category:** 📂 [Category]  
+    
+    **Gameplan:**
+    * [Step 1]
+    * [Step 2]
+    * [Step 3]
+    
+    ---
+    
+    If NO jobs score 85 or higher, output exactly: "No high-scoring matches found in this batch. Keep refining the search queries!"
+    """
 
-        JOB: {title} at {company}
-        DESCRIPTION: {desc}
-
-        TASK:
-        1. Calculate a Match Score out of 100 based on the rubric.
-        2. If score >= 85, provide a 3-step 'Gameplan'.
-        3. If score < 85, respond ONLY with 'SKIP'.
-        
-        OUTPUT FORMAT (If score >= 85):
-        ## {title} | {company}
-        **Match Score:** [Score]/100
-        **Category:** {category_label}
-        **Gameplan:**
-        - [Step 1]
-        - [Step 2]
-        - [Step 3]
-        ---
-        """
-
-        response = model.generate_content(grade_prompt)
-        result_text = response.text.strip()
-
-        if "SKIP" not in result_text.upper():
-            full_report_content += result_text + "\n"
-            high_match_found = True
-
-    if not high_match_found:
-        full_report_content += "No high-scoring matches found in this batch."
-
+    response = model.generate_content(batch_grade_prompt)
+    
     with open("FINAL_STRATEGY.md", "w") as f:
-        f.write(full_report_content)
+        f.write("# 🎯 Weekly AI Job Strategy: High-Probability Matches\n\n")
+        f.write(response.text.strip())
 
     print("\n=======================================================")
     print(" PIPELINE COMPLETE! Report generated in FINAL_STRATEGY.md ")
