@@ -20,3 +20,5 @@ sifted_jobs.json
 
 # Ignore Mac system files
 .DS_Store
+
+.streamlit/
