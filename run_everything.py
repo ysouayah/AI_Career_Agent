@@ -95,11 +95,10 @@ def main():
 
     jobs_str = json.dumps(fresh_jobs, indent=2)
 
-    # Rebuild candidate context (Generalized filename for GitHub)
+    # --- DYNAMIC CONTEXT BUILDING ---
     candidate_context = "--- MASTER RESUME ---\n"
-    # Make sure you rename your file to 'resume.pdf' in the folder!
     if os.path.exists("resume.pdf"):
-        candidate_context += extract_resume_text("resume.pdf") #change to your resume
+        candidate_context += extract_resume_text("resume.pdf")
     else:
         print("Warning: resume.pdf not found. Proceeding with limited context.")
 
@@ -107,19 +106,33 @@ def main():
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
         candidate_context += extract_resume_text("transcript.pdf")
 
+    if os.path.exists("preferences.txt"):
+        with open("preferences.txt", "r") as f:
+            candidate_context += "\n\n--- EXPLICIT CANDIDATE PREFERENCES & TIMELINES ---\n"
+            candidate_context += f.read()
+
     genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
     model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.3})
 
-    # --- PHASE 4: The Sifter ---
+    # --- PHASE 4: The Sifter (Holistic Alignment Protocol) ---
     print("\n--- PHASE 4: THE SIFTER (SELECTING TARGETS) ---")
     sift_prompt = f"""
-    You are an elite recruiter. Here is your client's profile:
+    You are an elite recruiter. Here is your client's profile and explicit preferences:
     {candidate_context}
 
-    Review these job cards and select the Top 15 roles.
+    Review these job cards. You must act as a strict but highly nuanced HR filter. 
+    
+    THE HOLISTIC ALIGNMENT PROTOCOL:
+    Before selecting a job, you must perform a nuanced, holistic evaluation of the candidate's application materials against the true nature of the job. If the job fails any of these alignment checks, you MUST reject it:
+    
+    1. The Education/Experience Matrix Check: Pay strict attention to "OR" logic in qualifications (e.g., "Master's OR Bachelor's + 3 years"). You must evaluate the specific pathway that matches the candidate's current degree. If their specific degree pathway requires multiple years of full-time professional experience they do not have, reject the job. Do not simply see their degree listed and pass the job.
+    2. The Technical Infrastructure & Deployment Check: Do not be misled by broad, shared industry concepts. Evaluate the job's actual day-to-day deployment target and underlying engineering stack. If the role operates in a fundamentally different technical environment, physical infrastructure, or software architecture than what the candidate has proven on their resume, reject it. A shared conceptual buzzword does not equal a shared technical reality.
+    3. The Stated Preference Check: Cross-reference the job against the candidate's explicit preferences. If the job violates a stated dealbreaker (visa policies, location, timeline, industry aversions, or travel requirements), reject it immediately. Do NOT invent constraints the candidate has not stated.
+    4. The Internship/Temporary Veto: The job MUST be a permanent post-graduation role. Reject any "Intern", "Internship", "Co-op", or summer program.
+
     Jobs: {jobs_str}
 
-    Output ONLY a valid JSON array of the objects for the 15 jobs selected.
+    Output ONLY a valid JSON array of the objects for the selected jobs that survived the Protocol (up to 15 max). Do not include markdown or any other text.
     """
     
     sifter_response = model.generate_content(sift_prompt)
@@ -129,7 +142,7 @@ def main():
         sifted_jobs = json.loads(clean_json)
         with open("sifted_jobs.json", "w") as f:
             json.dump(sifted_jobs, f, indent=4)
-        print("Sifter successfully selected the Top 15 targets.")
+        print("Sifter successfully selected the Top targets.")
     except Exception as e:
         print(f"Error parsing Sifter JSON: {e}")
         return
@@ -137,7 +150,7 @@ def main():
     # --- PHASE 5: The Deep Scrape ---
     run_script("deep_scraper.py")
 
-    # --- PHASE 6: THE FINAL GRADER (BATCHED OPTIMIZATION) ---
+    # --- PHASE 6: THE FINAL GRADER (Holistic Batch Optimization) ---
     print("\n--- PHASE 6: THE FINAL GRADER (WRITING THE PLAYBOOK) ---")
     
     if not os.path.exists("deep_jobs.json"):
@@ -147,7 +160,6 @@ def main():
     with open("deep_jobs.json", "r") as f:
         final_targets = json.load(f)
 
-    # Convert the list of jobs into a single string for the prompt
     all_jobs_text = json.dumps(final_targets, indent=2)
 
     print(f"Batch analyzing {len(final_targets)} descriptions to save API tokens...")
@@ -155,20 +167,31 @@ def main():
     batch_grade_prompt = f"""
     You are an elite career strategist. 
     
-    CANDIDATE BACKGROUND:
+    CANDIDATE BACKGROUND & PREFERENCES:
     {candidate_context}
 
     Here is a JSON array containing multiple job descriptions, which include their URLs:
     {all_jobs_text}
 
     TASK:
-    1. Evaluate EVERY job in the array against the candidate's background.
-    2. Mentally categorize the job as LEGAL_POLICY, TECHNICAL_DATA, or GENERAL.
-    3. Calculate a Match Score out of 100.
-    4. If the score is 85 or higher, extract the job's URL from the JSON and provide a brief Gameplan.
+    For EVERY job in the array, you MUST perform a strict verification before scoring:
     
-    OUTPUT FORMAT:
-    Return a Markdown report containing ONLY the jobs that scored 85 or higher. 
+    STEP 1: THE HOLISTIC ALIGNMENT CHECKLIST
+    Mentally answer these questions based strictly on the candidate's context. Do not invent constraints or assume exceptions:
+    1. Education/Experience Matrix: If the job uses "OR" logic for degrees/experience, does the specific pathway matching the candidate's degree require years of experience they do not currently possess?
+    2. Technical Infrastructure: Looking past broad conceptual buzzwords, does the job's actual underlying engineering stack, physical deployment target, or software architecture fundamentally mismatch the candidate's proven technical background?
+    3. Stated Preferences: Does the job violate ANY explicit dealbreaker (visa policies, location, timeline, industry aversions, travel) mentioned in the candidate's preferences?
+    4. Temporary Role: Is this role an "Internship", "Co-op", or temporary summer program rather than a permanent post-graduate role?
+    
+    STEP 2: SCORING
+    * If the answer to ANY of the Alignment questions is YES, the Match Score is automatically 0/100. Do not write a gameplan.
+    * Only if ALL Alignment answers are NO, calculate a true Match Score out of 100 based on holistic skill and narrative alignment.
+
+    STEP 3: STRICT FILTERING & FORMATTING
+    1. THE EXCLUSION RULE: You MUST silently omit any job that scores below 85. Do NOT print jobs with a score of 0. Do NOT show your work for rejected jobs.
+    2. THE SORTING RULE: You MUST sort the surviving jobs in descending order by Match Score (e.g., 98/100 at the top, 85/100 at the bottom).
+    
+    Return a Markdown report containing ONLY the surviving jobs that scored 85 or higher. 
     You MUST format the job title as a clickable Markdown link using the exact URL from the JSON data. Do NOT add spaces between the brackets and parentheses. 
     
     Format each winner exactly like this:
@@ -186,7 +209,7 @@ def main():
     
     ---
     
-    If NO jobs score 85 or higher, output exactly: "No high-scoring matches found in this batch. Keep refining the search queries!"
+    If NO jobs score 85 or higher, do not print any jobs. Output exactly: "No high-scoring matches found in this batch. Keep refining the search queries!"
     """
 
     response = model.generate_content(batch_grade_prompt)

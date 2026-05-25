@@ -28,15 +28,20 @@ def main():
 
     # 3. Ask Gemini to generate the absolute best search queries based ON the resume
     query_prompt = f"""
-    You are an elite technical recruiter. Analyze this candidate's profile:
+    You are an elite technical recruiter. Analyze this candidate's profile and preferences:
     {candidate_context}
 
-    Based strictly on their unique intersection of skills, generate the 5 most high-probability job search queries we should type into a job board (like Handshake or LinkedIn) to find their perfect role. 
-    
-    Focus on their specific intersections (e.g., if they have policy and data skills, do not just search "Data Analyst", search "AI Policy Analyst" or "Data Governance").
-    
-    Output ONLY a valid JSON array of 5 strings. Do not include markdown formatting or any other text.
-    Example: ["AI Policy Analyst", "Geopolitical Data Scientist", "Ethical AI Engineer", ...]
+    YOUR MISSION: 
+    1. Dynamically deduce the candidate's core industry, strongest skills, and career trajectory based ONLY on the provided text.
+    2. Generate exactly 12 highly targeted job search queries for job boards (like LinkedIn or Handshake) tailored SPECIFICALLY to this candidate's reality.
+
+    CRITICAL SOURCING RULES (THE FUNNEL FIX):
+    1. THE FULL-TIME MANDATE: The candidate is looking exclusively for FULL-TIME, POST-GRADUATION roles. You MUST append strict early-career modifiers for full-time work (e.g., "New Grad", "Entry Level", "Rotational Program", "Associate"). 
+    2. THE INTERNSHIP BAN: You MUST NOT generate any query for internships or co-ops. You should append "-intern -internship" to the end of your generated queries to force job boards to exclude temporary student roles (e.g., "New Grad Data Scientist -intern -internship").
+    3. THE GENERIC BAN: Never output naked titles (e.g., "Data Scientist", "Analyst", "Engineer"). Anchor the title to their specific seniority and their unique niche.
+    4. NO ASSUMPTIONS: Do not assume any specific industry (like AI or Public Policy) unless the candidate's resume or preferences explicitly point to it.
+
+    Output ONLY a valid JSON array of 12 strings. Do not include markdown formatting or any other text.
     """
 
     print("Analyzing candidate profile to generate highly targeted search queries...")
