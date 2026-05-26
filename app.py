@@ -11,8 +11,8 @@ st.markdown("Upload your context, enter your keys, and let the AI find your Unic
 # --- SIDEBAR: SECRETS & CONFIG ---
 st.sidebar.header("🔑 System Credentials")
 
-# Pull from secrets.toml if it exists, otherwise leave blank
 gemini_key = st.sidebar.text_input("Gemini API Key", type="password", value=st.secrets.get("GEMINI_API_KEY", ""))
+scraperapi_key = st.sidebar.text_input("ScraperAPI Key", type="password", value=st.secrets.get("SCRAPERAPI_KEY", "")) # <- ADD THIS
 email_user = st.sidebar.text_input("Gmail Address", value=st.secrets.get("EMAIL_USER", ""))
 email_pass = st.sidebar.text_input("Gmail App Password", type="password", value=st.secrets.get("EMAIL_PASS", ""))
 
@@ -78,6 +78,7 @@ if st.button("🚀 Launch AI Pipeline", use_container_width=True):
 
     # 5. Inject Credentials into the System Environment
     os.environ["GEMINI_API_KEY"] = gemini_key
+    os.environ["SCRAPERAPI_KEY"] = scraperapi_key
     if email_user and email_pass:
         os.environ["EMAIL_USER"] = email_user
         os.environ["EMAIL_PASS"] = email_pass

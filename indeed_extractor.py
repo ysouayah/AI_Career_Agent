@@ -3,6 +3,7 @@ import json
 import urllib.parse
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
+import os
 
 async def scrape_indeed():
     print("--- INITIATING INDEED EXTRACTION ---")
@@ -21,6 +22,18 @@ async def scrape_indeed():
     # Use the first location extracted by the AI
     target_location = locations[0] if locations else "United States"
     encoded_location = urllib.parse.quote_plus(target_location)
+
+    # Use ScraperAPI proxy pool if key is present to bypass cloud blocks
+    proxy_key = os.environ.get("SCRAPERAPI_KEY")
+    proxy_config = None
+    
+    if proxy_key:
+        print("[Indeed] >> Proxy Key detected. Routing traffic through Residential Proxy Pool...")
+        proxy_config = {
+            "server": "http://proxy-server.scraperapi.com:8001",
+            "username": "scraperapi",
+            "password": proxy_key
+        }
 
     # 2. Start the Scraper
     async with Stealth().use_async(async_playwright()) as p:

@@ -1,27 +1,53 @@
 # 🎯 Weekly AI Job Strategy: High-Probability Matches
 
-## [LPM Innovation Data Scientist](https://www.linkedin.com/jobs/view/lpm-innovation-data-scientist-at-ropes-gray-llp-4414180996)
+## [Policy Analyst and Engagement Specialist](https://www.linkedin.com/jobs/view/policy-analyst-and-engagement-specialist-at-new-england-board-of-higher-education-4407217336)
 
-**Company:** 🏢 Ropes & Gray LLP
-**Match Score:** 🎯 98/100
-**Category:** 📂 Data Science / Tech Policy
+**Company:** 🏢 New England Board of Higher Education
+**Match Score:** 🎯 98/100  
+**Category:** 📂 Tech Policy, Civic Tech, Data Science  
 
 **Gameplan:**
-*   **Highlight Interdisciplinary Expertise:** Emphasize your unique dual degree in Political Science and Data Science, positioning it as a direct asset for a "Legal Project Management (LPM) Innovation" role. Frame your technical skills (Python, SQL, ML, AI) within the context of legal and policy analysis.
-*   **Showcase Relevant Projects:** Detail your "MENA Immigration Policy RAG Agent" and "AI-Powered Legislative Data Infrastructure" projects. Specifically, connect the RAG framework, "No-Hallucination" system, policy data analysis, PostgreSQL database, and Streamlit dashboard to the job's need for "actionable insights through advanced data analysis, AI impact assessment, historical data review, and a sophisticated reporting suite."
-*   **Emphasize Soft Skills & Ethical AI:** Leverage your Boston Debate League experience (constructing arguments, ethical evaluation, public speaking) and your AI Ethics/Algorithmic Bias Auditing skills. This directly addresses the need to "influence outcomes, drive process improvement, and support innovation through data-driven storytelling" and the ethical considerations inherent in legal data.
+*   Highlight your dual degree in Political Science and Data Science as a perfect foundation for analyzing policy and leveraging data for actionable insights.
+*   Emphasize your "AI-Powered Legislative Data Infrastructure" project and "MENA Immigration Policy RAG Agent" as direct experience in policy data analysis, legislative tracking, and translating complex data into understandable outputs.
+*   Showcase your extensive experience in qualitative and quantitative analysis, geopolitical risk analysis, and legal writing, connecting them to the role's need for research, policy assessment, and communication with stakeholders.
 
 ---
 
-## [Legal Data Scientist](https://www.linkedin.com/jobs/view/legal-data-scientist-at-choate-hall-stewart-llp-4418040684)
+## [RESEARCH ASSISTANT, School of Public Health, Department of Health, Law, Policy and Management](https://www.linkedin.com/jobs/view/research-assistant-school-of-public-health-department-of-health-law-policy-and-management-at-boston-university-4399479227)
 
-**Company:** 🏢 Choate, Hall & Stewart LLP
-**Match Score:** 🎯 97/100
-**Category:** 📂 Data Science / Tech Policy
+**Company:** 🏢 Boston University
+**Match Score:** 🎯 92/100  
+**Category:** 📂 Data Science, Tech Policy, Legal Tech  
 
 **Gameplan:**
-*   **Position Dual Degree as a Core Strength:** Articulate how your Political Science and Data Science dual degree provides a foundational understanding of both legal frameworks and advanced analytical techniques, making you an ideal candidate to "transform complex data into actionable insights that increase operational efficiency and enhance value creation for our clients."
-*   **Connect Projects to Legal & Operational Needs:** Directly link your "AI-Powered Legislative Data Infrastructure" (auditing for transparency and bias) and "MENA Immigration Policy RAG Agent" (policy data analysis, PostgreSQL, Streamlit dashboards) to the job functions of "Predictive Budgeting," "Operational Scripting" (Python/R automation), and "AI-Driven Insights" for operational issues.
-*   **Demonstrate End-to-End Solution Delivery:** Highlight your "AI-Powered Job Discovery & Matching Framework" project to showcase your "proven track record of leading end-to-end solution delivery, including problem identification, solution design, implementation, and deployment, with measurable business impact and ongoing optimization." Emphasize your ability to work independently and translate technical findings into clear, actionable reports.
+*   Stress your strong data science skills (Python, R, SQL, Machine Learning) and coursework in "Data, Society, and AI Ethics" and "Social Justice Data Science," demonstrating a foundational understanding of data's role in public policy and health.
+*   Connect your experience from the BU Center on Forced Displacement (research on US immigration policy) and Dugree (assisting AI model training for bias) to the research assistant responsibilities, particularly in health law, policy, and management.
+*   Articulate how your skills in data hygiene, information privacy, and record auditing are crucial for maintaining high-quality research data, and how your analytical abilities can contribute to developing protocols and reports.
+
+---
+
+## [DATA ANALYST, Questrom, Graduate Admissions & Financial Aid](https://bu.joinhandshake.com/jobs/11014880)
+
+**Company:** 🏢 Boston University
+**Match Score:** 🎯 90/100  
+**Category:** 📂 Data Science  
+
+**Gameplan:**
+*   Emphasize your strong technical proficiency in Python, SQL, R, and advanced Excel (Pivot Tables, VLOOKUP, Data Modeling), which are essential for a data analyst role.
+*   Highlight your "AI-Powered Job Discovery & Matching Framework" project as an example of automating analysis of unstructured data and generating actionable recommendations, directly transferable to analyzing admissions or financial aid data.
+*   Leverage your "Database & Information Management" skills (CRM concepts, data hygiene, record auditing) to demonstrate your capability in managing and ensuring the integrity of critical institutional data.
+
+---
+
+## [JUNIOR RESEARCH DATA ANALYST, School of Public Health, Epidemiology](https://bu.joinhandshake.com/jobs/11037321)
+
+**Company:** 🏢 Boston University
+**Match Score:** 🎯 88/100  
+**Category:** 📂 Data Science  
+
+**Gameplan:**
+*   Showcase your robust data science toolkit, including Python, R, Machine Learning, and strong qualitative & quantitative analysis skills, which are fundamental for epidemiological research.
+*   Draw parallels between your "Data, Society, and AI Ethics" and "Social Justice Data Science" coursework and the ethical considerations and societal impact inherent in public health data analysis.
+*   Mention your internship at the BU Center on Forced Displacement, where you conducted research on US immigration policy, demonstrating your experience in a research-intensive environment and ability to work with policy-relevant data.
 
 ---
