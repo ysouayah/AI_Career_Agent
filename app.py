@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import subprocess
+import sys
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="AI Career Agent", page_icon="🎯", layout="wide")
@@ -89,7 +90,7 @@ if st.button("🚀 Launch AI Pipeline", use_container_width=True):
     
     with st.spinner('Deploying Extraction Fleet & AI Sifters... This may take a few minutes.'):
         try:
-            result = subprocess.run(["python3", "run_everything.py"], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, "run_everything.py"], capture_output=True, text=True)
             status_msg.empty() 
             
             if result.returncode == 0:

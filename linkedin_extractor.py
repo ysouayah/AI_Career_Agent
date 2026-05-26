@@ -5,26 +5,40 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 
 async def scrape_linkedin():
+    print("--- INITIATING LINKEDIN EXTRACTION ---")
+    
+    # 1. Grab targets from the Brainstormer
     try:
-        with open("target_queries.json", "r") as f:
-            queries = json.load(f)
+        with open("search_targets.json", "r") as f:
+            data = json.load(f)
+            titles = data.get("titles", ["Data Analyst"])
+            locations = data.get("locations", ["United States"])
     except FileNotFoundError:
-        print("Error: target_queries.json not found.")
-        return
+        print("Warning: search_targets.json not found. Using default targets.")
+        titles = ["Data Analyst"]
+        locations = ["United States"]
 
+    # Use the first location the AI extracted
+    target_location = locations[0] if locations else "United States"
+    encoded_location = urllib.parse.quote(target_location)
+
+    # 2. Start the Scraper
     async with Stealth().use_async(async_playwright()) as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
         page = await context.new_page()
         
         all_jobs_list = []
-        print(f"Loaded {len(queries)} target queries. Starting LinkedIn scrape...")
+        print(f"Loaded {len(titles)} target titles for location: '{target_location}'.")
 
-        for query in queries:
-            encoded_query = urllib.parse.quote(query)
-            target_url = f"https://www.linkedin.com/jobs/search?keywords={encoded_query}&location=Boston%2C%20Massachusetts"
+        # 3. Loop through every title the AI generated
+        for title in titles:
+            encoded_query = urllib.parse.quote(title)
             
-            print(f"-> Searching: {query}")
+            # The dynamic URL using both Title and Location
+            target_url = f"https://www.linkedin.com/jobs/search?keywords={encoded_query}&location={encoded_location}"
+            
+            print(f"-> Searching: {title}")
             await page.goto(target_url, wait_until="domcontentloaded")
             await page.wait_for_timeout(3000) 
             
@@ -42,13 +56,13 @@ async def scrape_linkedin():
                         lines = [line.strip() for line in text.split('\n') if line.strip()]
                         if len(lines) >= 2:
                             all_jobs_list.append({
-                                "query_matched": query,
+                                "query_matched": title,
                                 "raw_text": lines,
                                 "url": clean_url,
                                 "source": "LinkedIn"
                             })
         
-        # We don't need to filter by URL dictionary trick here because LinkedIn limits what we see without scrolling anyway, but good practice
+        # Deduplicate jobs by URL
         unique_jobs = list({job['url']: job for job in all_jobs_list}.values())
         print(f"\nSuccess! Extracted {len(unique_jobs)} total LinkedIn jobs.")
         

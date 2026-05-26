@@ -1,67 +1,69 @@
+import google.generativeai as genai
 import os
 import json
-import google.generativeai as genai
 from resume_parser import extract_resume_text
 
 def main():
-    print("\n[brainstormer.py] >> Initiating sequence...")
-    
-    # 1. Grab the API Key
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print("Error: GEMINI_API_KEY not found. Brainstormer cannot run.")
+    print("\n[Brainstormer] >> Analyzing candidate profile to determine search targets...")
+
+    if not os.environ.get("GEMINI_API_KEY"):
+        print("ERROR: GEMINI_API_KEY not found.")
         return
-        
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.4})
 
-    # 2. Read the Candidate Context FIRST
-    candidate_context = "--- MASTER RESUME ---\n"
+    # 1. Gather the Context
+    resume_text = ""
     if os.path.exists("resume.pdf"):
-        candidate_context += extract_resume_text("resume.pdf")
-    else:
-        print("Warning: resume.pdf not found. Generating generic queries.")
+        resume_text = extract_resume_text("resume.pdf")
+    
+    preferences = ""
+    if os.path.exists("preferences.txt"):
+        with open("preferences.txt", "r") as f:
+            preferences = f.read()
 
-    if os.path.exists("transcript.pdf"):
-        candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
-        candidate_context += extract_resume_text("transcript.pdf")
+    # 2. Configure the LLM
+    genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+    model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.2})
 
-    # 3. Ask Gemini to generate the absolute best search queries based ON the resume
-    query_prompt = f"""
-    You are an elite technical recruiter. Analyze this candidate's profile and preferences:
-    {candidate_context}
+    # 3. The Extraction Prompt
+    prompt = f"""
+    You are an elite AI Career Agent. Read this candidate's resume and explicit preferences.
+    
+    --- RESUME ---
+    {resume_text}
+    
+    --- PREFERENCES & DEALBREAKERS ---
+    {preferences}
+    
+    TASK:
+    Based on their background and their explicit requests, determine the best job search parameters to feed into an automated web scraper. 
+    
+    1. TITLES: Generate an array of 3 to 4 highly relevant job titles.
+    2. LOCATIONS: Extract the geographical locations they want to work in from their Preferences (e.g., "Boston, MA", "Remote", "New York, NY"). If they did not specify a location, default to "United States".
 
-    YOUR MISSION: 
-    1. Dynamically deduce the candidate's core industry, strongest skills, and career trajectory based ONLY on the provided text.
-    2. Generate exactly 12 highly targeted job search queries for job boards (like LinkedIn or Handshake) tailored SPECIFICALLY to this candidate's reality.
-
-    CRITICAL SOURCING RULES (THE FUNNEL FIX):
-    1. THE FULL-TIME MANDATE: The candidate is looking exclusively for FULL-TIME, POST-GRADUATION roles. You MUST append strict early-career modifiers for full-time work (e.g., "New Grad", "Entry Level", "Rotational Program", "Associate"). 
-    2. THE INTERNSHIP BAN: You MUST NOT generate any query for internships or co-ops. You should append "-intern -internship" to the end of your generated queries to force job boards to exclude temporary student roles (e.g., "New Grad Data Scientist -intern -internship").
-    3. THE GENERIC BAN: Never output naked titles (e.g., "Data Scientist", "Analyst", "Engineer"). Anchor the title to their specific seniority and their unique niche.
-    4. NO ASSUMPTIONS: Do not assume any specific industry (like AI or Public Policy) unless the candidate's resume or preferences explicitly point to it.
-
-    Output ONLY a valid JSON array of 12 strings. Do not include markdown formatting or any other text.
+    Output ONLY a valid JSON object in this exact format. Do not include markdown formatting, backticks, or any other text.
+    {{
+        "titles": ["Title 1", "Title 2", "Title 3"],
+        "locations": ["Location 1", "Location 2"]
+    }}
     """
 
-    print("Analyzing candidate profile to generate highly targeted search queries...")
-    response = model.generate_content(query_prompt)
-
-    # 4. Save the queries for the extractors to use
+    # 4. Generate and Save the Targets
     try:
+        response = model.generate_content(prompt)
         clean_json = response.text.replace("```json", "").replace("```", "").strip()
-        target_queries = json.loads(clean_json)
+        targets = json.loads(clean_json)
         
-        with open("target_queries.json", "w") as f:
-            json.dump(target_queries, f, indent=4)
+        with open("search_targets.json", "w") as f:
+            json.dump(targets, f, indent=4)
             
-        print(f"Success! Generated tailored queries: {target_queries}")
+        print(f"[Brainstormer] >> Success! Targets locked: {targets['titles']} in {targets['locations']}")
+        
     except Exception as e:
-        print(f"Error parsing Brainstormer JSON: {e}")
-        # Fallback queries just in case the AI hallucinates formatting
-        fallback = ["Data Analyst", "Policy Analyst", "Technical Project Manager"]
-        with open("target_queries.json", "w") as f:
-            json.dump(fallback, f)
+        print(f"[Brainstormer] >> Failed to generate targets: {e}")
+        # Fallback if the AI glitches
+        fallback = {"titles": ["Data Analyst", "Policy Analyst"], "locations": ["United States"]}
+        with open("search_targets.json", "w") as f:
+            json.dump(fallback, f, indent=4)
 
 if __name__ == "__main__":
     main()

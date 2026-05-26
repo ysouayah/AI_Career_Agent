@@ -5,48 +5,76 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 
 async def extract_job_data():
-    # 1. Load the AI's target queries
+    print("--- INITIATING HANDSHAKE EXTRACTION ---")
+    
+    # 1. Grab targets from the Autonomous Brainstormer
     try:
-        with open("target_queries.json", "r") as f:
-            queries = json.load(f)
+        with open("search_targets.json", "r") as f:
+            data = json.load(f)
+            titles = data.get("titles", ["Data Analyst"])
+            locations = data.get("locations", ["United States"])
     except FileNotFoundError:
-        print("Error: target_queries.json not found. Run brainstormer.py first.")
+        print("Error: search_targets.json not found. Run brainstormer.py first.")
         return
+
+    # Check if a custom cookies/state file exists, default to base handshake if not
+    storage_state_file = "handshake_state.json"
+    has_auth = os.path.exists(storage_state_file)
+    
+    # Base URL handling: If you are running it, it uses your saved state. 
+    # If someone else runs it without a state file, it gracefully hits standard public Handshake.
+    base_domain = "bu.joinhandshake.com" if has_auth else "joinhandshake.com"
 
     async with Stealth().use_async(async_playwright()) as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(storage_state="handshake_state.json")
-        page = await context.new_page()
         
+        # Load storage state only if it actually exists locally
+        if has_auth:
+            context = await browser.new_context(storage_state=storage_state_file, viewport={'width': 1920, 'height': 1080})
+        else:
+            print("Warning: handshake_state.json not found. Attempting public domain search.")
+            context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+            
+        page = await context.new_page()
         all_jobs_list = []
         
-        print(f"Loaded {len(queries)} target queries. Starting Handshake scrape...")
+        print(f"Loaded {len(titles)} target titles. Starting Handshake scrape...")
 
-        # 2. Loop through every job title
-        for query in queries:
-            encoded_query = urllib.parse.quote(query)
-            target_url = f"https://bu.joinhandshake.com/job-search?query={encoded_query}"
+        # 2. Loop through every AI-generated title
+        for title in titles:
+            encoded_query = urllib.parse.quote(title)
             
-            print(f"-> Searching: {query}")
-            await page.goto(target_url, wait_until="networkidle")
-            await page.wait_for_timeout(5000) 
+            # If a location was extracted, append it to the query parameters
+            target_location = locations[0] if locations else ""
+            loc_param = f"&location={urllib.parse.quote(target_location)}" if target_location else ""
             
-            job_elements = await page.locator("a[href*='/jobs/']").all()
+            target_url = f"https://{base_domain}/job-search?query={encoded_query}{loc_param}"
             
-            for element in job_elements:
-                text = await element.inner_text()
-                href = await element.get_attribute("href")
+            print(f"-> Searching: {title}")
+            try:
+                await page.goto(target_url, wait_until="networkidle")
+                await page.wait_for_timeout(5000) 
                 
-                if text.strip() and href:
-                    lines = [line.strip() for line in text.split('\n') if line.strip()]
-                    if len(lines) >= 2:
-                        full_link = f"https://bu.joinhandshake.com{href}"
-                        all_jobs_list.append({
-                            "query_matched": query,
-                            "raw_text": lines,
-                            "url": full_link,
-                            "source": "Handshake"
-                        })
+                job_elements = await page.locator("a[href*='/jobs/']").all()
+                
+                for element in job_elements:
+                    text = await element.inner_text()
+                    href = await element.get_attribute("href")
+                    
+                    if text.strip() and href:
+                        lines = [line.strip() for line in text.split('\n') if line.strip()]
+                        if len(lines) >= 2:
+                            # Build correct clean links structurally
+                            full_link = f"https://{base_domain}{href}" if href.startswith('/') else href
+                            all_jobs_list.append({
+                                "query_matched": title,
+                                "raw_text": lines,
+                                "url": full_link,
+                                "source": "Handshake"
+                            })
+            except Exception as e:
+                print(f"!!! Handshake block encountered or timeout for query '{title}': {e} !!!")
+                continue
         
         unique_jobs = list({job['url']: job for job in all_jobs_list}.values())
         print(f"\nSuccess! Extracted {len(unique_jobs)} total Handshake jobs.")
@@ -57,4 +85,5 @@ async def extract_job_data():
         await browser.close()
 
 if __name__ == "__main__":
+    import os
     asyncio.run(extract_job_data())
