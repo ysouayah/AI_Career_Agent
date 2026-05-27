@@ -6,13 +6,12 @@ import sys
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="AI Career Agent", page_icon="🎯", layout="wide")
 st.title("🤖 AI Career Agent: Executive Dashboard")
-st.markdown("Upload your context, enter your keys, and let the AI find your Unicorn roles.")
+st.markdown("Upload your context, enter your key, and let the AI find your Unicorn roles.")
 
 # --- SIDEBAR: SECRETS & CONFIG ---
 st.sidebar.header("🔑 System Credentials")
 
 gemini_key = st.sidebar.text_input("Gemini API Key", type="password", value=st.secrets.get("GEMINI_API_KEY", ""))
-scraperapi_key = st.sidebar.text_input("ScraperAPI Key", type="password", value=st.secrets.get("SCRAPERAPI_KEY", "")) # <- ADD THIS
 email_user = st.sidebar.text_input("Gmail Address", value=st.secrets.get("EMAIL_USER", ""))
 email_pass = st.sidebar.text_input("Gmail App Password", type="password", value=st.secrets.get("EMAIL_PASS", ""))
 
@@ -31,9 +30,16 @@ st.markdown("---")
 st.header("🎯 Candidate Preferences")
 st.markdown("Define your strict timelines, dealbreakers, and industry targets for the AI.")
 preferences_text = st.text_area(
-    "Explicit Dealbreakers & Timelines", 
+    "Custom Grading Rubric & Dealbreakers", 
     height=150,
-    placeholder="e.g., I am a dual Data Science/Political Science major graduating in 2027 looking exclusively for full-time, post-grad roles. I plan to attend law school in 2 years, so reject any jobs requiring Top Secret clearance. Target the intersection of AI, tech policy, and civic tech."
+    placeholder=(
+        "Tell the AI exactly how to score your jobs.\n\n"
+        "Example:\n"
+        "- I am a Software Engineer looking for remote backend roles.\n"
+        "- Reject any roles requiring 5+ years of experience or on-site work in NYC.\n"
+        "- Prioritize jobs using Python, FastAPI, and AWS.\n"
+        "- Heavily penalize or reject roles in the crypto/web3 industry."
+    )
 )
 
 st.markdown("---")
@@ -55,7 +61,7 @@ if st.button("🚀 Launch AI Pipeline", use_container_width=True):
         st.error("⚠️ A Master Resume is required to run the pipeline.")
         st.stop()
 
-    # 2. Save Uploaded Files to the Root Folder (The File Naming Fix)
+    # 2. Save Uploaded Files to the Root Folder
     with open("resume.pdf", "wb") as f:
         f.write(resume_file.getbuffer())
         
@@ -72,13 +78,12 @@ if st.button("🚀 Launch AI Pipeline", use_container_width=True):
     elif os.path.exists("preferences.txt"):
         os.remove("preferences.txt")
 
-    # 4. Handle Memory Bank (The Testing Fix)
+    # 4. Handle Memory Bank
     if wipe_memory and os.path.exists("memory_bank.db"):
         os.remove("memory_bank.db")
 
     # 5. Inject Credentials into the System Environment
     os.environ["GEMINI_API_KEY"] = gemini_key
-    os.environ["SCRAPERAPI_KEY"] = scraperapi_key
     if email_user and email_pass:
         os.environ["EMAIL_USER"] = email_user
         os.environ["EMAIL_PASS"] = email_pass

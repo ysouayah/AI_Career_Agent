@@ -11,12 +11,16 @@ async def scrape_linkedin():
     try:
         with open("search_targets.json", "r") as f:
             data = json.load(f)
-            titles = data.get("titles", ["Data Analyst"])
+            titles = data.get("titles")
             locations = data.get("locations", ["United States"])
+            
+        if not titles or len(titles) == 0:
+            print("Error: 'titles' key is missing or empty in search_targets.json.")
+            return
+            
     except FileNotFoundError:
-        print("Warning: search_targets.json not found. Using default targets.")
-        titles = ["Data Analyst"]
-        locations = ["United States"]
+        print("Error: search_targets.json not found. Please run brainstormer.py first.")
+        return
 
     # Use the first location the AI extracted
     target_location = locations[0] if locations else "United States"

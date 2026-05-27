@@ -12,30 +12,22 @@ async def scrape_indeed():
     try:
         with open("search_targets.json", "r") as f:
             data = json.load(f)
-            titles = data.get("titles", ["Data Analyst"])
+            titles = data.get("titles")
             locations = data.get("locations", ["United States"])
+            
+        if not titles or len(titles) == 0:
+            print("Error: 'titles' key is missing or empty in search_targets.json.")
+            return
+            
     except FileNotFoundError:
-        print("Warning: search_targets.json not found. Using default targets.")
-        titles = ["Data Analyst"]
-        locations = ["United States"]
+        print("Error: search_targets.json not found. Please run brainstormer.py first.")
+        return
 
     # Use the first location extracted by the AI
     target_location = locations[0] if locations else "United States"
     encoded_location = urllib.parse.quote_plus(target_location)
 
-    # Use ScraperAPI proxy pool if key is present to bypass cloud blocks
-    proxy_key = os.environ.get("SCRAPERAPI_KEY")
-    proxy_config = None
-    
-    if proxy_key:
-        print("[Indeed] >> Proxy Key detected. Routing traffic through Residential Proxy Pool...")
-        proxy_config = {
-            "server": "http://proxy-server.scraperapi.com:8001",
-            "username": "scraperapi",
-            "password": proxy_key
-        }
-
-    # 2. Start the Scraper
+    # 2. Start the Scraper natively on your residential IP
     async with Stealth().use_async(async_playwright()) as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
@@ -46,7 +38,6 @@ async def scrape_indeed():
 
         # 3. Loop through every AI-generated title
         for title in titles:
-            # Indeed cleanly uses '+' for spaces in queries
             encoded_query = urllib.parse.quote_plus(title)
             target_url = f"https://www.indeed.com/jobs?q={encoded_query}&l={encoded_location}"
             
@@ -54,7 +45,7 @@ async def scrape_indeed():
             await page.goto(target_url, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
             
-            # Using your exact structural DOM selectors
+            # Extract via direct structural DOM selectors
             job_cards = await page.locator("td.resultContent").all()
             
             for card in job_cards:

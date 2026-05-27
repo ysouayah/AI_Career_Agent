@@ -1,2 +1,0 @@
-Focus on: Python, SQL, web scraping (Playwright), and AI agent development.
-Points: +20 for automation-heavy roles, +15 for Large Language Model (LLM) implementation, +10 for data engineering pipelines.

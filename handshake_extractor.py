@@ -3,6 +3,7 @@ import json
 import urllib.parse
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
+import os
 
 async def extract_job_data():
     print("--- INITIATING HANDSHAKE EXTRACTION ---")
@@ -11,10 +12,15 @@ async def extract_job_data():
     try:
         with open("search_targets.json", "r") as f:
             data = json.load(f)
-            titles = data.get("titles", ["Data Analyst"])
+            titles = data.get("titles")
             locations = data.get("locations", ["United States"])
+            
+        if not titles or len(titles) == 0:
+            print("Error: 'titles' key is missing or empty in search_targets.json.")
+            return
+            
     except FileNotFoundError:
-        print("Error: search_targets.json not found. Run brainstormer.py first.")
+        print("Error: search_targets.json not found. Please run brainstormer.py first.")
         return
 
     # Check if a custom cookies/state file exists, default to base handshake if not
@@ -85,5 +91,4 @@ async def extract_job_data():
         await browser.close()
 
 if __name__ == "__main__":
-    import os
     asyncio.run(extract_job_data())

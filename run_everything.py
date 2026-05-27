@@ -12,44 +12,6 @@ def run_script(script_name):
         print(f"!!! Error running {script_name}. Pipeline paused. !!!")
         exit(1)
 
-def classify_and_load_rubric(job_title, job_description, model):
-    """
-    Acts as a triage agent. Classifies the job and loads the appropriate grading rubric.
-    """
-    classifier_prompt = f"""
-    You are a career triage agent. Look at this job:
-    Title: {job_title}
-    Description: {job_description}
-
-    Classify this job into EXACTLY ONE of these three categories based on its primary focus:
-    1. LEGAL_POLICY (Focuses on compliance, ethics, geopolitical analysis, or public policy)
-    2. TECHNICAL_DATA (Focuses on coding, machine learning, data engineering, or heavy analytics)
-    3. GENERAL (Standard corporate, consulting, or administrative roles that don't fit the above)
-
-    Respond with ONLY the category name. Do not include any other text.
-    """
-
-    # 1. Ask Gemini to classify the job
-    response = model.generate_content(classifier_prompt)
-    category = response.text.strip().upper()
-
-    # 2. Route to the correct rubric file
-    if "LEGAL" in category:
-        file_path = "rubrics/legal_policy.txt"
-        print(f" -> Triage: Routed '{job_title}' to Legal/Policy Rubric.")
-    elif "TECHNICAL" in category:
-        file_path = "rubrics/technical_data.txt"
-        print(f" -> Triage: Routed '{job_title}' to Technical/Data Rubric.")
-    else:
-        file_path = "rubrics/general.txt"
-        print(f" -> Triage: Routed '{job_title}' to General Rubric.")
-
-    # 3. Load and return the rubric text
-    with open(file_path, "r") as f:
-        rubric_text = f.read()
-
-    return rubric_text, category
-
 def main():
     print("==================================================")
     print("      INITIALIZING AI RECRUITER PIPELINE          ")
@@ -106,10 +68,17 @@ def main():
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
         candidate_context += extract_resume_text("transcript.pdf")
 
+    candidate_context += "\n\n--- EXPLICIT CANDIDATE PREFERENCES & GRADING RUBRIC ---\n"
     if os.path.exists("preferences.txt"):
         with open("preferences.txt", "r") as f:
-            candidate_context += "\n\n--- EXPLICIT CANDIDATE PREFERENCES & TIMELINES ---\n"
-            candidate_context += f.read()
+            prefs_content = f.read().strip()
+        
+        if prefs_content:
+            candidate_context += prefs_content
+        else:
+            candidate_context += "Evaluate jobs based on general professional fit, standard industry entry requirements, and alignment with the provided resume skills."
+    else:
+        candidate_context += "Evaluate jobs based on general professional fit, standard industry entry requirements, and alignment with the provided resume skills."
 
     genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
     model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.3})
@@ -125,11 +94,11 @@ def main():
     THE HOLISTIC ALIGNMENT PROTOCOL:
     Before selecting a job, you must perform a nuanced, holistic evaluation of the candidate's application materials against the true nature of the job. If the job fails any of these alignment checks, you MUST reject it:
     
-    1. The Education/Experience Matrix Check: Pay strict attention to "OR" logic in qualifications (e.g., "Master's OR Bachelor's + 3 years"). You must isolate the specific pathway that matches the candidate's highest degree. Mathematically calculate the candidate's exact years of full-time professional experience from their resume, and compare it against the job's minimum requirement for that pathway. 
-    STRICT BINDING RULE: If (Candidate's Actual Years) is less than (Job's Required Years), the Match Score is automatically 0/100. Exceptional narrative alignment, matching technical tools, or project overlap does NOT override a mathematical deficit in required years. Act like a heartless corporate bureaucrat—if they do not have the raw numbers, it is an immediate failure.
-    2. The Technical Infrastructure & Deployment Check: Do not be misled by broad, shared industry concepts. Evaluate the job's actual day-to-day deployment target and underlying engineering stack. If the role operates in a fundamentally different technical environment, physical infrastructure, or software architecture than what the candidate has proven on their resume, reject it. A shared conceptual buzzword does not equal a shared technical reality.
-    3. The Stated Preference Check: Cross-reference the job against the candidate's explicit preferences. If the job violates a stated dealbreaker (visa policies, location, timeline, industry aversions, or travel requirements), reject it immediately. Do NOT invent constraints the candidate has not stated.
-    4. The Internship/Temporary Veto: The job MUST be a permanent post-graduation role. Reject any "Intern", "Internship", "Co-op", or summer program.
+    1. The Education/Experience Matrix Check: Pay strict attention to "OR" logic in qualifications. You must isolate the specific pathway that matches the candidate's highest degree. Mathematically calculate the candidate's exact years of full-time professional experience from their resume, and compare it against the job's minimum requirement for that pathway. 
+    STRICT BINDING RULE: If (Candidate's Actual Years) is less than (Job's Required Years), the Match Score is automatically 0/100. Exceptional narrative alignment does NOT override a mathematical deficit in required years, unless explicitly overridden by the candidate's preferences.
+    2. The Technical Infrastructure & Deployment Check: Evaluate the job's actual day-to-day deployment target and underlying engineering stack. If the role operates in a fundamentally different technical environment than what the candidate has proven on their resume, reject it.
+    3. The Stated Preference Check: Cross-reference the job against the candidate's explicit preferences and custom rubric constraints. If the job violates a stated dealbreaker, reject it immediately. Do NOT invent constraints the candidate has not stated.
+    4. The Internship/Temporary Veto: The job MUST be a permanent post-graduation role. Reject any "Intern", "Internship", "Co-op", or summer program unless explicit consulting/contracting overrides are provided in the rubric.
 
     Jobs: {jobs_str}
 
@@ -179,34 +148,36 @@ def main():
     
     STEP 1: THE HOLISTIC ALIGNMENT CHECKLIST
     Mentally answer these questions based strictly on the candidate's context. Do not invent constraints or assume exceptions:
-    1. Education/Experience Matrix: If the job uses "OR" logic for degrees/experience, does the specific pathway matching the candidate's degree require years of experience they do not currently possess?
-    2. Technical Infrastructure: Looking past broad conceptual buzzwords, does the job's actual underlying engineering stack, physical deployment target, or software architecture fundamentally mismatch the candidate's proven technical background?
-    3. Stated Preferences: Does the job violate ANY explicit dealbreaker (visa policies, location, timeline, industry aversions, travel) mentioned in the candidate's preferences?
-    4. Temporary Role: Is this role an "Internship", "Co-op", or temporary summer program rather than a permanent post-graduate role?
+    1. Education/Experience Matrix: If the job uses "OR" logic, does the pathway matching the candidate's degree require years of experience they do not currently possess? (Check rubric for equivalence).
+    2. Technical Infrastructure: Does the job's actual engineering stack fundamentally mismatch the candidate's proven technical background?
+    3. Stated Preferences & Rubric: Does the job violate ANY explicit dealbreaker mentioned in the candidate's custom rubric?
+    4. Temporary Role: Is this role an "Internship" or temporary program? (Check rubric for contractor overrides).
     
     STEP 2: SCORING
-    * If the answer to ANY of the Alignment questions is YES, the Match Score is automatically 0/100. Do not write a gameplan.
+    * If the answer to ANY of the Alignment questions is YES, the Match Score is automatically 0/100.
     * Only if ALL Alignment answers are NO, calculate a true Match Score out of 100 based on holistic skill and narrative alignment.
 
     STEP 3: STRICT FILTERING & FORMATTING
-    1. THE EXCLUSION RULE: You MUST silently omit any job that scores below 85. Do NOT print jobs with a score of 0. Do NOT show your work for rejected jobs.
-    2. THE SORTING RULE: You MUST sort the surviving jobs in descending order by Match Score (e.g., 98/100 at the top, 85/100 at the bottom).
+    1. THE EXCLUSION RULE: You MUST silently omit any job that scores below 85. Do NOT print jobs with a score of 0.
+    2. THE SORTING RULE: You MUST sort the surviving jobs in descending order by Match Score.
     
-    Return a Markdown report containing ONLY the surviving jobs that scored 85 or higher. 
-    You MUST format the job title as a clickable Markdown link using the exact URL from the JSON data. Do NOT add spaces between the brackets and parentheses. 
+    Format EVERY surviving job EXACTLY like the template below. 
+    CRITICAL HYPERLINK INSTRUCTION: You MUST wrap the Job Title in square brackets `[]` and immediately follow it with the job's exact URL from the JSON data in parentheses `()` to create a valid Markdown link. Do not forget the brackets or parentheses!
     
-    Format each winner exactly like this:
+    ### [EXACT JOB TITLE FROM JSON](EXACT URL FROM JSON)
     
-    ## [INSERT_JOB_TITLE](INSERT_ACTUAL_URL_HERE)
+    * **Company:** 🏢 INSERT_COMPANY_NAME
+    * **Match Score:** 🎯 [Score]/100  
+    * **Category:** 📂 [Category]  
     
-    **Company:** 🏢 INSERT_COMPANY_NAME
-    **Match Score:** 🎯 [Score]/100  
-    **Category:** 📂 [Category]  
+    **🟢 PROS (Alignment):**
+    * [List 1-2 reasons why this job aligns with the candidate's skills or targets]
     
-    **Gameplan:**
-    * [Step 1]
-    * [Step 2]
-    * [Step 3]
+    **🔴 POTENTIAL HURDLES:**
+    * [List any minor missing skills or things the candidate should prepare to defend in an interview]
+    
+    **⚖️ THE VERDICT:**
+    * [One sentence explaining why this is a high-probability match]
     
     ---
     
@@ -223,8 +194,12 @@ def main():
     print(" PIPELINE COMPLETE! Report generated in FINAL_STRATEGY.md ")
     print("=======================================================")
     
-    from notifier import send_strategy_report
-    send_strategy_report("ysouayah@bu.edu")
+    if os.environ.get("EMAIL_USER") and os.environ.get("EMAIL_PASS"):
+        try:
+            from notifier import send_strategy_report
+            send_strategy_report(os.environ.get("EMAIL_USER"))
+        except ImportError:
+            print("Notice: notifier.py not found. Skipping email dispatch.")
 
 if __name__ == "__main__":
     main()

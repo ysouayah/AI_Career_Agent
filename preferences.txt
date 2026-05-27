@@ -1,6 +1,4 @@
-I am graduating in 2027 and looking exclusively for entry-level, post-grad roles or fellowships. My target fields are at the intersection of Data Science, Tech Policy, Legal Tech, and Civic Tech. I want to work strictly in the Greater Boston area or 100% Fully Remote. 
-
-CRITICAL DEALBREAKERS: 
-1. I plan to attend law school in 2 years, so reject any roles requiring a long-term corporate commitment or Top Secret government security clearance. 
-2. Absolutely no defense contractors or corporate finance investment banking.
-3. If a job explicitly requires 2 or more years of full-time, post-graduate experience, reject it instantly. Internships do not count as post-grad years.
+1. TARGET FOCUS: Exclusively target roles in Clinical Informatics, Healthcare Data Architecture, Public Health Data Hygiene, and EHR Auditing.
+2. HYPER-NICHE STRICTNESS: Instantly reject (Score: 0/100) any generic "Data Analyst" or "Data Scientist" roles that operate in retail, marketing, finance, or generic tech. The role MUST be situated within a hospital, healthcare system, health-tech startup, or public health agency.
+3. COMPLIANCE REQUIREMENT: Favor roles that explicitly mention HIPAA compliance, patient data privacy, HL7, or Epic EHR systems. 
+4. EXPERIENCE OVERFLOW: If a job demands a strict 4+ years of post-graduate hospital administration or clinical data experience, instantly reject it (0/100). Accept 1-3 years by using the Mayo Clinic internship as high-value equivalence.
