@@ -1,34 +1,72 @@
-import smtplib
-from email.message import EmailMessage
 import os
+import smtplib
+import tomllib
+import markdown
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 
-def send_strategy_report(recipient_email):
-    report_path = "FINAL_STRATEGY.md"
-    
-    if not os.path.exists(report_path):
-        print("No report found to send.")
-        return
+def send_notification():
+    print("\n--- [NOTIFIER] Waking up Executive Mailer ---")
 
-    with open(report_path, "r") as f:
-        report_content = f.read()
+    secrets_path = os.path.join(".streamlit", "secrets.toml")
+    with open(secrets_path, "rb") as f: secrets = tomllib.load(f)
+    sender_email, app_password = secrets.get("EMAIL_USER"), secrets.get("EMAIL_PASS")
 
-    # Create the email container
-    msg = EmailMessage()
-    msg.set_content(report_content)
-    msg["Subject"] = "🎯 Weekly AI Job Strategy: High-Probability Matches"
-    
-    # These pull securely from the terminal environment we set up!
-    sender_email = os.environ.get("EMAIL_USER")
-    sender_password = os.environ.get("EMAIL_PASS")
-    
-    msg["From"] = sender_email
-    msg["To"] = recipient_email
+    if not os.path.exists("FINAL_STRATEGY.md"): return
+    with open("FINAL_STRATEGY.md", "r", encoding="utf-8") as f: raw_md = f.read()
+    if not raw_md.strip(): return
 
-    try:
-        # Standard Gmail SMTP settings
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(sender_email, sender_password)
-            smtp.send_message(msg)
-        print("Report successfully emailed!")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
+    # Convert Markdown to HTML
+    html_content = markdown.markdown(raw_md, extensions=['tables'])
+
+    # Inject CSS Styling to mimic Streamlit UI
+    styled_email = f"""
+    <html>
+    <head>
+        <style>
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F8FAFC; color: #1E293B; padding: 20px; line-height: 1.6; }}
+            .container {{ max-width: 680px; margin: 0 auto; background: #FFFFFF; padding: 32px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); border: 1px solid #E2E8F0; }}
+            h1 {{ color: #0F172A; font-size: 22px; border-bottom: 2px solid #3B82F6; padding-bottom: 10px; margin-top: 0; }}
+            h2 {{ color: #1E293B; font-size: 18px; margin-top: 28px; background-color: #F1F5F9; padding: 10px 14px; border-radius: 6px; border-left: 4px solid #3B82F6; }}
+            h3 {{ color: #334155; font-size: 15px; margin-top: 20px; }}
+            a {{ color: #2563EB; text-decoration: none; font-weight: 600; }}
+            a:hover {{ text-decoration: underline; }}
+            ul {{ padding-left: 20px; }}
+            li {{ margin-bottom: 6px; }}
+            .footer {{ font-size: 12px; color: #64748B; text-align: center; margin-top: 30px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            {html_content}
+            <div class="footer">🤖 Generated autonomously by Project Dali (AI Career Agent)</div>
+        </div>
+    </body>
+    </html>
+    """
+
+    msg = MIMEMultipart()
+    msg['From'], msg['To'], msg['Subject'] = sender_email, sender_email, "🎯 AI Career Agent: Executive Match Report & Packages"
+    msg.attach(MIMEText(styled_email, 'html', 'utf-8'))
+
+    # Attach all generated PDFs
+    pdf_dir = "application_packages"
+    if os.path.exists(pdf_dir):
+        for file in sorted(os.listdir(pdf_dir)):
+            if file.endswith(".pdf"):
+                file_path = os.path.join(pdf_dir, file)
+                with open(file_path, "rb") as f:
+                    part = MIMEApplication(f.read(), _subtype="pdf")
+                    part.add_header('Content-Disposition', 'attachment', filename=file)
+                    msg.attach(part)
+                print(f"[+] Attached: {file}")
+
+    print("[*] Transmitting VIP package over Port 465...")
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        server.login(sender_email, app_password)
+        server.send_message(msg)
+    print(f"\n🎉 VIP Report & PDFs successfully delivered to {sender_email}\n")
+
+if __name__ == "__main__":
+    send_notification()

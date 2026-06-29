@@ -1,13 +1,24 @@
 import subprocess
 import json
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from resume_parser import extract_resume_text
+import sys
+import tomllib
+
+# Load Streamlit secrets into the environment for background runs
+secrets_path = os.path.join(".streamlit", "secrets.toml")
+if os.path.exists(secrets_path):
+    with open(secrets_path, "rb") as f:
+        secrets = tomllib.load(f)
+        for key, value in secrets.items():
+            os.environ[key] = str(value)
 
 def run_script(script_name):
     print(f"\n[{script_name}] >> Initiating sequence...")
     try:
-        subprocess.run(["python3", script_name], check=True)
+        subprocess.run([sys.executable, script_name], check=True) 
     except subprocess.CalledProcessError:
         print(f"!!! Error running {script_name}. Pipeline paused. !!!")
         exit(1)
@@ -52,7 +63,17 @@ def main():
     print(f"Total FRESH jobs for evaluation: {len(fresh_jobs)}")
     
     if len(fresh_jobs) == 0:
-        print("No new jobs found this week. Sleeping until next run.")
+        print("No new jobs found this week. Bypassing AI Grader and sending status email.")
+        with open("FINAL_STRATEGY.md", "w") as f:
+            f.write("# 🎯 Weekly AI Job Strategy\n\nNo new fresh jobs were found by the scrapers this week. Keep refining the search queries!")
+        
+        # Trigger the email even if empty
+        if os.environ.get("EMAIL_USER") and os.environ.get("EMAIL_PASS"):
+            try:
+                from notifier import send_strategy_report
+                send_strategy_report(os.environ.get("EMAIL_USER"))
+            except ImportError:
+                pass
         return
 
     jobs_str = json.dumps(fresh_jobs, indent=2)
@@ -69,19 +90,26 @@ def main():
         candidate_context += extract_resume_text("transcript.pdf")
 
     candidate_context += "\n\n--- EXPLICIT CANDIDATE PREFERENCES & GRADING RUBRIC ---\n"
-    if os.path.exists("preferences.txt"):
-        with open("preferences.txt", "r") as f:
-            prefs_content = f.read().strip()
+    if os.path.exists("user_config.json"):
+        with open("user_config.json", "r") as f:
+            config = json.load(f)
         
-        if prefs_content:
-            candidate_context += prefs_content
-        else:
-            candidate_context += "Evaluate jobs based on general professional fit, standard industry entry requirements, and alignment with the provided resume skills."
+        candidate_context += f"""
+        1. THE DUAL-TIMELINE RULE: Evaluate jobs against two strictly acceptable pathways. If a job fits EITHER pathway, it passes.
+        - Pathway A ({config['target_timelines']['pathway_a']['type']}): Target window is {config['target_timelines']['pathway_a']['target_window']}.
+        - Pathway B ({config['target_timelines']['pathway_b']['type']}): Only accept full-time roles explicitly mentioning a cohort target or graduation marker like {', '.join(config['target_timelines']['pathway_b']['cohort_keywords'])}.
+        
+        2. THE TECHNICAL & DOMAIN ALIGNMENT: 
+        - Prioritize engineering stacks utilizing: {', '.join(config['industry_rubric']['preferred_tech_stack'])}.
+        - Look for intersections between {', '.join(config['industry_rubric']['primary_focus'])} and core analytical work in {', '.join(config['industry_rubric']['secondary_interdisciplinary_focus'])}.
+        
+        3. THE STANDARD REQ VETO: 
+        - Active Immediate-Hire Rejection: {config['hard_vetos']['reject_standard_immediate_hire_requisitions']}. Instantly reject any standard corporate job posting that lacks a future cohort target, even if labeled entry-level.
+        """
     else:
         candidate_context += "Evaluate jobs based on general professional fit, standard industry entry requirements, and alignment with the provided resume skills."
 
-    genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-    model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.3})
+    client = genai.Client()
 
     # --- PHASE 4: The Sifter (Holistic Alignment Protocol) ---
     print("\n--- PHASE 4: THE SIFTER (SELECTING TARGETS) ---")
@@ -105,7 +133,11 @@ def main():
     Output ONLY a valid JSON array of the objects for the selected jobs that survived the Protocol (up to 15 max). Do not include markdown or any other text.
     """
     
-    sifter_response = model.generate_content(sift_prompt)
+    sifter_response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=sift_prompt,
+        config=types.GenerateContentConfig(temperature=0.3)
+    )
     
     try:
         clean_json = sifter_response.text.replace("```json", "").replace("```", "").strip()
@@ -169,6 +201,7 @@ def main():
     * **Company:** 🏢 INSERT_COMPANY_NAME
     * **Match Score:** 🎯 [Score]/100  
     * **Category:** 📂 [Category]  
+    * **Deadline/Timeline:** ⏳ [Extract the explicit deadline date. If none is listed, write "Rolling / ASAP. Apply immediately."]
     
     **🟢 PROS (Alignment):**
     * [List 1-2 reasons why this job aligns with the candidate's skills or targets]
@@ -184,11 +217,19 @@ def main():
     If NO jobs score 85 or higher, do not print any jobs. Output exactly: "No high-scoring matches found in this batch. Keep refining the search queries!"
     """
 
-    response = model.generate_content(batch_grade_prompt)
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=batch_grade_prompt,
+        config=types.GenerateContentConfig(temperature=0.3)
+    )
     
     with open("FINAL_STRATEGY.md", "w") as f:
         f.write("# 🎯 Weekly AI Job Strategy: High-Probability Matches\n\n")
         f.write(response.text.strip())
+
+    # --- PHASE 7: AUTO-FULFILLMENT ENGINE ---
+    # Generates tailored bullet points and cover letters right after the playbook is compiled
+    run_script("auto_fulfiller.py")
 
     print("\n=======================================================")
     print(" PIPELINE COMPLETE! Report generated in FINAL_STRATEGY.md ")

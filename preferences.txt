@@ -1,4 +1,4 @@
-1. TARGET FOCUS: Exclusively target roles in Clinical Informatics, Healthcare Data Architecture, Public Health Data Hygiene, and EHR Auditing.
-2. HYPER-NICHE STRICTNESS: Instantly reject (Score: 0/100) any generic "Data Analyst" or "Data Scientist" roles that operate in retail, marketing, finance, or generic tech. The role MUST be situated within a hospital, healthcare system, health-tech startup, or public health agency.
-3. COMPLIANCE REQUIREMENT: Favor roles that explicitly mention HIPAA compliance, patient data privacy, HL7, or Epic EHR systems. 
-4. EXPERIENCE OVERFLOW: If a job demands a strict 4+ years of post-graduate hospital administration or clinical data experience, instantly reject it (0/100). Accept 1-3 years by using the Mayo Clinic internship as high-value equivalence.
+1. THE DUAL-TIMELINE RULE: You must evaluate jobs against two strictly acceptable pathways. If a job fits EITHER pathway, it passes the timeline check.
+2. PATHWAY A (The Part-Time Bridge): Accept part-time roles, internships, or contract work that explicitly allows current students to work during the academic year (targeting a January 2027 or Spring 2027 start). 
+3. PATHWAY B (The Post-Graduation Target): Only accept full-time roles if they explicitly mention a future cohort year, university recruiting pipeline, or graduation target (e.g., "Class of 2027," "2027 New Grad," "Spring 2027 Graduate").
+4. THE STANDARD REQ VETO: Instantly reject (Score: 0/100) any standard corporate job posting that lacks a future cohort year, even if it says "early-career" or "entry-level." If the posting implies an active, standard hiring requisition to fill an open vacancy immediately, it must be vetoed.

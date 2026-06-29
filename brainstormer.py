@@ -1,11 +1,22 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import os
 import json
 import sys
+import tomllib 
 from resume_parser import extract_resume_text
+import time
 
 def main():
     print("\n[Brainstormer] >> Analyzing candidate profile to determine search targets...")
+
+    # Load Streamlit secrets for standalone testing
+    secrets_path = os.path.join(".streamlit", "secrets.toml")
+    if os.path.exists(secrets_path):
+        with open(secrets_path, "rb") as f:
+            secrets = tomllib.load(f)
+            for key, value in secrets.items():
+                os.environ[key] = str(value)
 
     if not os.environ.get("GEMINI_API_KEY"):
         print("ERROR: GEMINI_API_KEY not found.")
@@ -16,16 +27,16 @@ def main():
     if os.path.exists("resume.pdf"):
         resume_text = extract_resume_text("resume.pdf")
     
+    # 2. Extract Permanent Preferences
     preferences = ""
-    if os.path.exists("preferences.txt"):
-        with open("preferences.txt", "r") as f:
-            preferences = f.read()
+    if os.path.exists("user_config.json"):
+        with open("user_config.json", "r") as f:
+            preferences = json.dumps(json.load(f), indent=2)
 
-    # 2. Configure the LLM
-    genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-    model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"temperature": 0.2})
+    # 3. Configure the New LLM Client
+    client = genai.Client()
 
-    # 3. The Extraction Prompt
+    # 4. The Extraction Prompt
     prompt = f"""
     You are an elite AI Career Agent. Read this candidate's resume and explicit preferences.
     
@@ -48,25 +59,39 @@ def main():
     }}
     """
 
-    # 4. Generate and Save the Targets
-    try:
-        response = model.generate_content(prompt)
-        clean_json = response.text.replace("```json", "").replace("```", "").strip()
-        targets = json.loads(clean_json)
-        
-        # Guard clause to ensure the AI actually returned structured titles
-        if not targets.get("titles") or len(targets["titles"]) == 0:
-            raise ValueError("AI response structure is missing valid job titles.")
+    # 5. Generate and Save the Targets (With 503 Retry Logic)
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.2)
+            )
             
-        with open("search_targets.json", "w") as f:
-            json.dump(targets, f, indent=4)
+            clean_json = response.text.replace("```json", "").replace("```", "").strip()
+            targets = json.loads(clean_json)
             
-        print(f"[Brainstormer] >> Success! Targets locked: {targets['titles']} in {targets['locations']}")
-        
-    except Exception as e:
-        print(f"\n❌ [Brainstormer] FATAL ERROR: Failed to automatically generate search targets.")
-        print(f"Details: {e}")
-        print("Pipeline halted to prevent unconfigured scraping queries.\n")
+            if not targets.get("titles") or len(targets["titles"]) == 0:
+                raise ValueError("AI response structure is missing valid job titles.")
+                
+            with open("search_targets.json", "w") as f:
+                json.dump(targets, f, indent=4)
+                
+            print(f"[Brainstormer] >> Success! Targets locked: {targets['titles']} in {targets['locations']}")
+            break # Exit the retry loop on success
+            
+        except Exception as e:
+            if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e):
+                wait_time = (attempt + 1) * 15 # Wait 15s, then 30s, then 45s...
+                print(f"[!] Google API busy (Attempt {attempt+1}/{max_retries}). Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"\n❌ [Brainstormer] FATAL ERROR: Non-retriable failure.")
+                print(f"Details: {e}")
+                sys.exit(1)
+    else:
+        print("\n❌ [Brainstormer] FATAL ERROR: Max retries exceeded. Servers are completely down.")
         sys.exit(1)
 
 if __name__ == "__main__":

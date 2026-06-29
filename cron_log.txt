@@ -1,0 +1,48 @@
+/Users/ysfsouayah/Desktop/AI_Career_Agent/run_everything.py:4: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+/Users/ysfsouayah/Desktop/AI_Career_Agent/brainstormer.py:1: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+
+[Brainstormer] >> Analyzing candidate profile to determine search targets...
+Reading resume: resume.pdf...
+Success! Resume text extracted.
+
+❌ [Brainstormer] FATAL ERROR: Failed to automatically generate search targets.
+Details: 429 Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#prepay. 
+Pipeline halted to prevent unconfigured scraping queries.
+
+==================================================
+      INITIALIZING AI RECRUITER PIPELINE          
+==================================================
+
+[brainstormer.py] >> Initiating sequence...
+!!! Error running brainstormer.py. Pipeline paused. !!!
+
+[Brainstormer] >> Analyzing candidate profile to determine search targets...
+Reading resume: resume.pdf...
+Success! Resume text extracted.
+
+❌ [Brainstormer] FATAL ERROR: Failed to automatically generate search targets.
+Details: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+Pipeline halted to prevent unconfigured scraping queries.
+
+==================================================
+      INITIALIZING AI RECRUITER PIPELINE          
+==================================================
+
+[brainstormer.py] >> Initiating sequence...
+!!! Error running brainstormer.py. Pipeline paused. !!!

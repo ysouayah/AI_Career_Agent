@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import subprocess
 import sys
+import json
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="AI Career Agent", page_icon="🎯", layout="wide")
@@ -27,20 +28,10 @@ with col2:
 st.markdown("---")
 
 # --- MAIN DASHBOARD: THE BASELINE REALITY ---
-st.header("🎯 Candidate Preferences")
-st.markdown("Define your strict timelines, dealbreakers, and industry targets for the AI.")
-preferences_text = st.text_area(
-    "Custom Grading Rubric & Dealbreakers", 
-    height=150,
-    placeholder=(
-        "Tell the AI exactly how to score your jobs.\n\n"
-        "Example:\n"
-        "- I am a Software Engineer looking for remote backend roles.\n"
-        "- Reject any roles requiring 5+ years of experience or on-site work in NYC.\n"
-        "- Prioritize jobs using Python, FastAPI, and AWS.\n"
-        "- Heavily penalize or reject roles in the crypto/web3 industry."
-    )
-)
+st.header("🎯 Active Candidate Parameters")
+if os.path.exists("user_config.json"):
+    with open("user_config.json", "r") as f:
+        st.json(json.load(f))
 
 st.markdown("---")
 
@@ -70,13 +61,6 @@ if st.button("🚀 Launch AI Pipeline", use_container_width=True):
             f.write(transcript_file.getbuffer())
     elif os.path.exists("transcript.pdf"):
         os.remove("transcript.pdf")
-
-    # 3. Save Preferences to Text File
-    if preferences_text.strip():
-        with open("preferences.txt", "w") as f:
-            f.write(preferences_text)
-    elif os.path.exists("preferences.txt"):
-        os.remove("preferences.txt")
 
     # 4. Handle Memory Bank
     if wipe_memory and os.path.exists("memory_bank.db"):

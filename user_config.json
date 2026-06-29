@@ -1,0 +1,25 @@
+{
+  "candidate_name": "Youssef Souayah",
+  "target_timelines": {
+    "pathway_a": {
+      "type": "Part-Time / Internship / Contract",
+      "target_window": "Academic Year (January 2027 / Spring 2027 start)",
+      "allow_current_students": true
+    },
+    "pathway_b": {
+      "type": "Permanent Full-Time",
+      "target_window": "Post-Graduation (June 2027 start)",
+      "cohort_keywords": ["Class of 2027", "2027 New Grad", "University Graduate", "Early Career"]
+    }
+  },
+  "industry_rubric": {
+    "primary_focus": ["Data Science", "Machine Learning", "Data Analytics"],
+    "secondary_interdisciplinary_focus": ["Political Science", "Immigration Policy", "Public Policy Analysis"],
+    "preferred_tech_stack": ["Python", "SQL", "PostgreSQL", "Pandas", "R", "Tableau"]
+  },
+  "hard_vetos": {
+    "require_future_cohort_marker_for_full_time": true,
+    "reject_standard_immediate_hire_requisitions": true,
+    "min_match_score_threshold": 85
+  }
+}
