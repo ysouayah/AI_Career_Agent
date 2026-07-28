@@ -6,16 +6,38 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
-def send_notification():
+def send_strategy_report(recipient_email):
     print("\n--- [NOTIFIER] Waking up Executive Mailer ---")
 
-    secrets_path = os.path.join(".streamlit", "secrets.toml")
-    with open(secrets_path, "rb") as f: secrets = tomllib.load(f)
-    sender_email, app_password = secrets.get("EMAIL_USER"), secrets.get("EMAIL_PASS")
+    # Fetch credentials from environment or secrets.toml
+    sender_email = os.environ.get("EMAIL_USER")
+    app_password = os.environ.get("EMAIL_PASS")
+    
+    if not sender_email or not app_password:
+        secrets_path = os.path.join(".streamlit", "secrets.toml")
+        with open(secrets_path, "rb") as f: secrets = tomllib.load(f)
+        sender_email = secrets.get("EMAIL_USER")
+        app_password = secrets.get("EMAIL_PASS")
 
-    if not os.path.exists("FINAL_STRATEGY.md"): return
+    if not os.path.exists("FINAL_STRATEGY.md"): 
+        print("[!] FINAL_STRATEGY.md missing.")
+        return
+        
     with open("FINAL_STRATEGY.md", "r", encoding="utf-8") as f: raw_md = f.read()
     if not raw_md.strip(): return
+
+    # --- THE GUILLOTINE ---
+    # Forcefully slice off everything starting from the packages section 
+    cutoff_markers = [
+        "==================================================",
+        "📦 READY-TO-SEND APPLICATION PACKAGES",
+        "READY-TO-SEND APPLICATION PACKAGES"
+    ]
+    
+    for marker in cutoff_markers:
+        if marker in raw_md:
+            raw_md = raw_md.split(marker)[0].strip()
+    # ----------------------
 
     # Convert Markdown to HTML
     html_content = markdown.markdown(raw_md, extensions=['tables'])
@@ -40,14 +62,13 @@ def send_notification():
     <body>
         <div class="container">
             {html_content}
-            <div class="footer">🤖 Generated autonomously by Project Dali (AI Career Agent)</div>
         </div>
     </body>
     </html>
     """
 
     msg = MIMEMultipart()
-    msg['From'], msg['To'], msg['Subject'] = sender_email, sender_email, "🎯 AI Career Agent: Executive Match Report & Packages"
+    msg['From'], msg['To'], msg['Subject'] = sender_email, recipient_email, "🎯 AI Career Agent: Executive Match Report & Packages"
     msg.attach(MIMEText(styled_email, 'html', 'utf-8'))
 
     # Attach all generated PDFs
@@ -66,7 +87,10 @@ def send_notification():
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
         server.login(sender_email, app_password)
         server.send_message(msg)
-    print(f"\n🎉 VIP Report & PDFs successfully delivered to {sender_email}\n")
+    print(f"\n🎉 VIP Report & PDFs successfully delivered to {recipient_email}\n")
 
 if __name__ == "__main__":
-    send_notification()
+    # Allows you to test it directly from the terminal without running the whole pipeline
+    secrets_path = os.path.join(".streamlit", "secrets.toml")
+    with open(secrets_path, "rb") as f: secrets = tomllib.load(f)
+    send_strategy_report(secrets.get("EMAIL_USER"))

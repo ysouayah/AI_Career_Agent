@@ -10,7 +10,6 @@ import time
 def main():
     print("\n[Brainstormer] >> Analyzing candidate profile to determine search targets...")
 
-    # Load Streamlit secrets for standalone testing
     secrets_path = os.path.join(".streamlit", "secrets.toml")
     if os.path.exists(secrets_path):
         with open(secrets_path, "rb") as f:
@@ -22,55 +21,42 @@ def main():
         print("ERROR: GEMINI_API_KEY not found.")
         sys.exit(1)
 
-    # 1. Gather the Context
     resume_text = ""
     if os.path.exists("resume.pdf"):
         resume_text = extract_resume_text("resume.pdf")
     
-    # 2. Extract Permanent Preferences
     preferences = ""
     if os.path.exists("user_config.json"):
         with open("user_config.json", "r") as f:
             preferences = json.dumps(json.load(f), indent=2)
 
-    # 3. Configure the New LLM Client
     client = genai.Client()
 
-    # 4. The Extraction Prompt
     prompt = f"""
-    You are an elite AI Career Agent. Read this candidate's resume and explicit preferences.
+    Analyze the following candidate profile.
+    Resume: {resume_text}
+    Preferences: {preferences}
     
-    --- RESUME ---
-    {resume_text}
-    
-    --- PREFERENCES & DEALBREAKERS ---
-    {preferences}
-    
-    TASK:
-    Based on their background and their explicit requests, determine the best job search parameters to feed into an automated web scraper. 
-    
-    1. TITLES: Generate an array of 3 to 4 highly relevant job titles tailored to this specific user.
-    2. LOCATIONS: Extract the geographical locations they want to work in from their Preferences (e.g., "Boston, MA", "Remote", "New York, NY"). If they did not specify a location, default to "United States".
-
-    Output ONLY a valid JSON object in this exact format. Do not include markdown formatting, backticks, or any other text.
-    {{
-        "titles": ["Title 1", "Title 2", "Title 3"],
-        "locations": ["Location 1", "Location 2"]
-    }}
+    Return a strict JSON object with two keys to guide our job scraper:
+    "titles": [A list of 3 to 5 highly relevant job titles to search for]
+    "locations": [A list of 1 to 3 relevant locations, e.g., "Boston, MA", "Remote"]
     """
 
-    # 5. Generate and Save the Targets (With 503 Retry Logic)
     max_retries = 5
     for attempt in range(max_retries):
         try:
+            # Forcing native JSON mode at the API level
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.2)
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json"
+                )
             )
             
-            clean_json = response.text.replace("```json", "").replace("```", "").strip()
-            targets = json.loads(clean_json)
+            # Since it's native JSON, we can load it directly without text replacement hacks
+            targets = json.loads(response.text.strip())
             
             if not targets.get("titles") or len(targets["titles"]) == 0:
                 raise ValueError("AI response structure is missing valid job titles.")
@@ -79,11 +65,11 @@ def main():
                 json.dump(targets, f, indent=4)
                 
             print(f"[Brainstormer] >> Success! Targets locked: {targets['titles']} in {targets['locations']}")
-            break # Exit the retry loop on success
+            break 
             
         except Exception as e:
             if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e):
-                wait_time = (attempt + 1) * 15 # Wait 15s, then 30s, then 45s...
+                wait_time = (attempt + 1) * 15 
                 print(f"[!] Google API busy (Attempt {attempt+1}/{max_retries}). Retrying in {wait_time}s...")
                 time.sleep(wait_time)
             else:

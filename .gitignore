@@ -21,4 +21,7 @@ sifted_jobs.json
 # Ignore Mac system files
 .DS_Store
 
-.streamlit/
+.streamlit/secrets.toml
+secrets.toml
+*.json
+memory_bank.db

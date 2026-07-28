@@ -6,12 +6,16 @@ import sys
 import tomllib
 import re
 import time
-from resume_parser import extract_resume_text
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+import shutil
+from datetime import datetime
 
+# ==========================================
+# 1. TEXT FORMATTING UTILS
+# ==========================================
 def xml_safe(text):
     """Escapes special characters so ReportLab XML doesn't crash on symbols like & or <."""
     text = text.replace('<b>', '§B§').replace('</b>', '§/B§')
@@ -28,6 +32,9 @@ def clean_llm_artifacts(text):
         cleaned.append(line)
     return '\n'.join(cleaned).strip()
 
+# ==========================================
+# 2. PDF & CONTENT GENERATORS
+# ==========================================
 def build_resume_pdf(filename, markdown_resume):
     """Compiles a tight, 0.5-inch margined full ATS Resume PDF."""
     doc = SimpleDocTemplate(
@@ -36,7 +43,6 @@ def build_resume_pdf(filename, markdown_resume):
     )
     styles = getSampleStyleSheet()
     
-    # ATS Resume Typography Hierarchy
     name_style = ParagraphStyle('ResName', parent=styles['Heading1'], fontSize=18, leading=22, alignment=1, textColor=colors.HexColor("#0F172A"), fontName="Helvetica-Bold")
     contact_style = ParagraphStyle('ResContact', parent=styles['Normal'], fontSize=9, leading=13, alignment=1, textColor=colors.HexColor("#475569"), spaceAfter=12)
     section_style = ParagraphStyle('ResSection', parent=styles['Heading2'], fontSize=11, leading=15, textColor=colors.HexColor("#1E3A8A"), spaceBefore=12, spaceAfter=4, fontName="Helvetica-Bold")
@@ -48,7 +54,6 @@ def build_resume_pdf(filename, markdown_resume):
         line = line.strip()
         if not line: continue
         
-        # Convert standard markdown bolding
         while '**' in line:
             line = line.replace('**', '<b>', 1).replace('**', '</b>', 1)
         safe_line = xml_safe(line)
@@ -70,17 +75,28 @@ def build_resume_pdf(filename, markdown_resume):
     doc.build(story)
 
 def build_letter_pdf(filename, company, letter_text):
-    """Compiles a classic, 0.75-inch margined Cover Letter PDF."""
+    """Compiles a classic, formal Cover Letter PDF with a professional letterhead."""
     doc = SimpleDocTemplate(
         filename, pagesize=letter,
         rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54
     )
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle('CovTitle', parent=styles['Heading1'], fontSize=15, leading=19, textColor=colors.HexColor("#0F172A"), spaceAfter=18, fontName="Helvetica-Bold")
-    body_style = ParagraphStyle('CovBody', parent=styles['Normal'], fontSize=10.5, leading=15.5, textColor=colors.HexColor("#334155"), spaceAfter=10, fontName="Helvetica")
+    name_style = ParagraphStyle('Name', parent=styles['Normal'], fontSize=16, fontName="Helvetica-Bold", textColor=colors.HexColor("#0F172A"), spaceAfter=2)
+    contact_style = ParagraphStyle('Contact', parent=styles['Normal'], fontSize=10, fontName="Helvetica", textColor=colors.HexColor("#475569"), spaceAfter=18)
+    date_style = ParagraphStyle('Date', parent=styles['Normal'], fontSize=10.5, fontName="Helvetica", textColor=colors.HexColor("#1E293B"), spaceAfter=14)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10.5, leading=15.5, textColor=colors.HexColor("#1E293B"), spaceAfter=10, fontName="Helvetica")
     
-    story = [Paragraph(f"Application Cover Letter &mdash; {company}", title_style), Spacer(1, 10)]
+    story = []
+    
+    story.append(Paragraph("Youssef Souayah", name_style))
+    story.append(Paragraph("ysouayah@bu.edu | linkedin.com/in/ysfsouayah | Boston, MA", contact_style))
+    
+    current_date = datetime.now().strftime("%B %d, %Y")
+    story.append(Paragraph(current_date, date_style))
+    
+    story.append(Paragraph(f"Hiring Team<br/>{company}", date_style))
+    
     for p in letter_text.split('\n\n'):
         if p.strip():
             clean = p.strip()
@@ -91,6 +107,64 @@ def build_letter_pdf(filename, company, letter_text):
             
     doc.build(story)
 
+def build_interview_prep_pdf(filename, company, job_title, job_description, client):
+    """Generates a targeted interview prep sheet based on the job description."""
+    prompt = f"""
+    Act as a senior technical recruiter for {company} hiring a {job_title}. 
+    Based on the following job description, generate 15 highly specific interview questions to prepare the candidate. 
+    Include 5 Technical/Hard Skill questions, 5 Behavioral/Cultural questions, and 5 Strategic/Scenario-based questions.
+    
+    Job Description:
+    {job_description}
+    """
+    
+    response = client.models.generate_content(
+        model='gemini-2.5-flash', contents=prompt
+    )
+    prep_text = response.text.strip()
+
+    doc = SimpleDocTemplate(
+        filename, pagesize=letter,
+        rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54
+    )
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('Title', parent=styles['Normal'], fontSize=16, fontName="Helvetica-Bold", textColor=colors.HexColor("#0F172A"), spaceAfter=15)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10.5, leading=15.5, textColor=colors.HexColor("#1E293B"), spaceAfter=10, fontName="Helvetica")
+    
+    story = []
+    story.append(Paragraph(f"Interview Preparation: {company} - {job_title}", title_style))
+    
+    for p in prep_text.split('\n\n'):
+        if p.strip():
+            clean = p.strip()
+            while '**' in clean:
+                clean = clean.replace('**', '<b>', 1).replace('**', '</b>', 1)
+            story.append(Paragraph(xml_safe(clean).replace('\n', '<br/>'), body_style))
+            story.append(Spacer(1, 6))
+            
+    doc.build(story)
+
+def check_for_extra_requirements(client, job_description):
+    """Scans the job description for non-standard application instructions."""
+    prompt = f"""
+    Read this job description. Does it ask the applicant to do anything outside of simply submitting a resume and cover letter through a portal? 
+    For example: Does it ask to email a specific person, submit a writing sample, or provide a portfolio link? (Ignore requests for official university transcripts).
+    
+    If YES: Draft the required email or a short text document fulfilling the requirement.
+    If NO: Output exactly "NONE".
+    
+    Job Description:
+    {job_description}
+    """
+    response = client.models.generate_content(
+        model='gemini-2.5-flash', contents=prompt
+    )
+    return response.text.strip()
+
+# ==========================================
+# 3. MAIN EXECUTION LOOP
+# ==========================================
 def build_application_packages():
     print("--- INITIATING PHASE 7: AUTO-FULFILLMENT ENGINE ---")
     
@@ -102,19 +176,55 @@ def build_application_packages():
     if not os.environ.get("GEMINI_API_KEY"):
         print("ERROR: GEMINI_API_KEY not found.")
         sys.exit(1)
-    
+
+    resume_text = ""
+    try:
+        with open("master_resume.md", "r", encoding="utf-8") as f: 
+            resume_text = f.read()
+    except FileNotFoundError:
+        print("ERROR: master_resume.md not found.")
+        return
+
     try:
         with open("sifted_jobs.json", "r") as f: passed_jobs = json.load(f)
     except FileNotFoundError: return
 
     if not passed_jobs: return
 
-    resume_text = extract_resume_text("resume.pdf")
+    # --- NEW SYNC LOGIC ---
+    # Read the final email text to see which jobs actually survived the 85+ score cutoff
+    try:
+        with open("FINAL_STRATEGY.md", "r", encoding="utf-8") as f:
+            approved_text = f.read()
+    except FileNotFoundError:
+        approved_text = ""
+
+    # Filter passed_jobs down to ONLY the ones whose URL appears in the final report
+    final_jobs = []
+    for job in passed_jobs:
+        if job.get("url", "MISSING_URL") in approved_text:
+            final_jobs.append(job)
+
+    passed_jobs = final_jobs
+    
+    if not passed_jobs:
+        print("   [-] No jobs scored 85+. Skipping package generation.")
+        return
+    # ----------------------
+
+    client = genai.Client()
+
     client = genai.Client()
     
     output_dir = "application_packages"
-    os.makedirs(output_dir, exist_ok=True)
     
+    # --- SELF CLEANING MECHANISM ---
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir) # Nuke the old folder and all its contents
+    
+    os.makedirs(output_dir, exist_ok=True) # Rebuild a fresh, empty folder
+    # -------------------------------
+        
     print(f"Drafting full upload-ready documents for {len(passed_jobs)} roles...")
 
     for i, job in enumerate(passed_jobs):
@@ -124,15 +234,19 @@ def build_application_packages():
         prompt = f"""
         You are an elite executive career coach and ATS optimization expert. Read this raw job data and candidate master resume.
         Raw Job Data: {raw_jd}
-        Master Resume: {resume_text}
+        Master Kitchen-Sink Resume: {resume_text}
         
         TASK REQUIREMENTS:
         Output EXACTLY three parts separated by '|||'. 
         CRITICAL: Do NOT output conversational filler. Start immediately with the requested text.
         
-        PART 1: Extract ONLY the official, clean company name from the raw job data (e.g. SentiLink, Qualcomm, Max Tech). Nothing else.
+        PART 1: Extract ONLY the official, clean company name from the raw job data.
         |||
-        PART 2: The COMPLETE, FULL TAILORED RESUME. Take my master resume verbatim from top to bottom, but rewrite 3 to 4 bullet points in my Experience/Projects section to aggressively match this job's exact tech stack. Keep my name, contact info, education, skills, and dates 100% intact. Format strictly with Markdown tags (# Name, ## SECTIONS, ### Roles | Dates, - bullets).
+        PART 2: The COMPLETE, TAILORED RESUME. 
+        - Keep my Name, Contact Info, Education, and Skills exactly as formatted.
+        - PRUNE: Delete older or irrelevant jobs/projects/leadership roles if they do not add direct value to this specific role, ensuring the final resume is highly targeted and fits on one page.
+        - REWRITE: For the projects/experience you keep, rewrite the bullet points from scratch to aggressively match the tech stack, verbs, and keywords in the Job Data.
+        - FORMAT: You must strictly use the exact Markdown tags provided (# Name, ## SECTIONS, ### Roles | Dates, - bullets). Do not break this formatting.
         |||
         PART 3: Write a confident, direct 3-paragraph cover letter ready to send.
         """
@@ -152,11 +266,24 @@ def build_application_packages():
                 
                 clean_comp = re.sub(r'[^\w\s-]', '', company).strip().replace(' ', '_')
                 
+                # 1 & 2. Build Resume & Cover Letter
                 res_path = os.path.join(output_dir, f"Job{i+1}_{clean_comp}_Full_Resume.pdf")
                 cov_path = os.path.join(output_dir, f"Job{i+1}_{clean_comp}_Cover_Letter.pdf")
-                
                 build_resume_pdf(res_path, full_resume)
                 build_letter_pdf(cov_path, company, letter_text)
+                
+                # 3. Build Interview Prep PDF
+                prep_path = os.path.join(output_dir, f"Job{i+1}_{clean_comp}_Interview_Prep.pdf")
+                build_interview_prep_pdf(prep_path, company, job_title, raw_jd, client)
+                
+                # 4. Check for Edge-Case Requirements
+                extra_reqs = check_for_extra_requirements(client, raw_jd)
+                if "NONE" not in extra_reqs.upper() and len(extra_reqs) > 10:
+                    extra_path = os.path.join(output_dir, f"Job{i+1}_{clean_comp}_Extra_Steps.txt")
+                    with open(extra_path, "w", encoding="utf-8") as ef:
+                        ef.write(extra_reqs)
+                    print(f"   [!] Extra requirements found for {company}. Saved to {extra_path}")
+
                 print(f"   [+] Compiled upload-ready ATS PDFs for: {job_title} at {company}")
                 
                 time.sleep(3)
