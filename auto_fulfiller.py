@@ -145,6 +145,52 @@ def build_interview_prep_pdf(filename, company, job_title, job_description, clie
             
     doc.build(story)
 
+def build_company_brief_pdf(filename, company, job_title, job_description, client):
+    """Generates a deep-dive company brief to give the candidate an interview edge."""
+    
+    prompt = f"""
+    Act as an elite business analyst preparing a candidate for a {job_title} interview at {company}.
+    Based on this job description and your broader knowledge of the company/industry, generate a concise, high-impact "Cheat Sheet".
+    
+    Include EXACTLY these sections:
+    1. **The 30-Second Background:** Core mission and what they actually do.
+    2. **Products & Market:** Key products/services, target audience, and who their biggest competitors are.
+    3. **The Inside Scoop:** Based on the job description, what specific problem or bottleneck is this company likely struggling with right now that this role is meant to solve?
+    4. **The Mic Drop:** Give me one highly insightful, strategic question the candidate can ask the interviewer at the end of the interview to completely blow their mind and show deep industry understanding.
+
+    Job Description:
+    {job_description}
+    """
+    
+    try:
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+        brief_text = response.text.strip()
+    except Exception as e:
+        print(f"      [x] Failed to generate company brief: {e}")
+        return
+
+    doc = SimpleDocTemplate(
+        filename, pagesize=letter,
+        rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54
+    )
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('Title', parent=styles['Normal'], fontSize=16, fontName="Helvetica-Bold", textColor=colors.HexColor("#0F172A"), spaceAfter=15)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10.5, leading=15.5, textColor=colors.HexColor("#1E293B"), spaceAfter=10, fontName="Helvetica")
+    
+    story = []
+    story.append(Paragraph(f"Executive Company Brief: {company}", title_style))
+    
+    for p in brief_text.split('\n\n'):
+        if p.strip():
+            clean = p.strip()
+            while '**' in clean:
+                clean = clean.replace('**', '<b>', 1).replace('**', '</b>', 1)
+            story.append(Paragraph(xml_safe(clean).replace('\n', '<br/>'), body_style))
+            story.append(Spacer(1, 6))
+            
+    doc.build(story)
+
 def check_for_extra_requirements(client, job_description):
     """Scans the job description for non-standard application instructions."""
     prompt = f"""
@@ -213,8 +259,6 @@ def build_application_packages():
     # ----------------------
 
     client = genai.Client()
-
-    client = genai.Client()
     
     output_dir = "application_packages"
     
@@ -276,7 +320,11 @@ def build_application_packages():
                 prep_path = os.path.join(output_dir, f"Job{i+1}_{clean_comp}_Interview_Prep.pdf")
                 build_interview_prep_pdf(prep_path, company, job_title, raw_jd, client)
                 
-                # 4. Check for Edge-Case Requirements
+                # 4. Build Company Brief PDF
+                brief_path = os.path.join(output_dir, f"Job{i+1}_{clean_comp}_Company_Brief.pdf")
+                build_company_brief_pdf(brief_path, company, job_title, raw_jd, client)
+                
+                # 5. Check for Edge-Case Requirements
                 extra_reqs = check_for_extra_requirements(client, raw_jd)
                 if "NONE" not in extra_reqs.upper() and len(extra_reqs) > 10:
                     extra_path = os.path.join(output_dir, f"Job{i+1}_{clean_comp}_Extra_Steps.txt")

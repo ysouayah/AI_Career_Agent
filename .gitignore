@@ -25,3 +25,5 @@ sifted_jobs.json
 secrets.toml
 *.json
 memory_bank.db
+*.pdf
+application_packages/

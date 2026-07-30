@@ -1,14 +1,13 @@
 {
     "titles": [
-        "Data Scientist (2027 New Grad)",
-        "Machine Learning Engineer (2027 New Grad)",
-        "Data Analyst (2027 New Grad)",
-        "AI/ML Intern (Spring 2027)",
-        "Policy Data Analyst (2027 New Grad)"
+        "Data Scientist",
+        "Machine Learning Engineer",
+        "Data Analyst",
+        "AI/ML Engineer",
+        "Policy Data Analyst"
     ],
     "locations": [
         "Boston, MA",
-        "Remote",
-        "Washington, D.C."
+        "Remote"
     ]
 }
