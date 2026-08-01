@@ -3,3 +3,4 @@ playwright
 reportlab
 markdown
 pdfplumber
+playwright-stealth
