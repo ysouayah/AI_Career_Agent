@@ -32,6 +32,10 @@ jobs:
         echo 'EMAIL_PASS = "${{ secrets.EMAIL_PASS }}"' >> secrets.toml
 
     - name: Run AI Pipeline
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        EMAIL_USER: ${{ secrets.EMAIL_USER }}
+        EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
       run: python run_everything.py
 
     - name: Commit Updated Memory Bank
