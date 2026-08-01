@@ -2,9 +2,8 @@ name: Daily AI Career Agent
 
 on:
   schedule:
-    # Runs at 13:00 UTC, which is 9:00 AM EDT
     - cron: '0 13 * * *'
-  workflow_dispatch: # Allows you to manually trigger it from the GitHub website
+  workflow_dispatch:
 
 jobs:
   run-agent:
@@ -26,11 +25,13 @@ jobs:
         pip install -r requirements.txt
         python -m playwright install --with-deps chromium
 
+    - name: Generate secrets.toml
+      run: |
+        echo 'GEMINI_API_KEY = "${{ secrets.GEMINI_API_KEY }}"' > secrets.toml
+        echo 'EMAIL_USER = "${{ secrets.EMAIL_USER }}"' >> secrets.toml
+        echo 'EMAIL_PASS = "${{ secrets.EMAIL_PASS }}"' >> secrets.toml
+
     - name: Run AI Pipeline
-      env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        EMAIL_USER: ${{ secrets.EMAIL_USER }}
-        EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
       run: python run_everything.py
 
     - name: Commit Updated Memory Bank
@@ -38,5 +39,4 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add memory_bank.db
-        # Only commit if the database actually changed
         git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update memory bank" && git push)

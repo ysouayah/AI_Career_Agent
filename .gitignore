@@ -26,4 +26,5 @@ secrets.toml
 *.json
 memory_bank.db
 *.pdf
+!resume.pdf
 application_packages/
