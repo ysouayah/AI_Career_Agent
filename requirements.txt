@@ -2,3 +2,4 @@ google-genai
 playwright
 reportlab
 markdown
+pdfplumber
