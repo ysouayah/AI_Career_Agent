@@ -4,3 +4,4 @@ playwright-stealth
 reportlab
 markdown
 pdfplumber
+duckduckgo-search

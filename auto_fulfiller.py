@@ -12,6 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 import shutil
 from datetime import datetime
+from duckduckgo_search import DDGS
 
 # ==========================================
 # 1. TEXT FORMATTING UTILS
@@ -110,7 +111,13 @@ def build_letter_pdf(filename, company, letter_text):
 def build_interview_prep_pdf(filename, company, job_title, job_description, client):
     """Generates a targeted interview prep sheet based on the job description."""
     prompt = f"""
-    Act as a senior technical recruiter for {company} hiring a {job_title}. 
+    Act as a senior technical recruiter for {company} hiring specifically for the EXACT role of: {job_title}. 
+    
+    STRICT RULES:
+    - Target Job Title: {job_title} (Do NOT change, abbreviate, or substitute this title under any circumstances).
+    - Base your questions ONLY on the provided job description. 
+    - Do not assume responsibilities or technical requirements that are not explicitly stated or implied by the provided job description.
+
     Based on the following job description, generate 15 highly specific interview questions to prepare the candidate. 
     Include 5 Technical/Hard Skill questions, 5 Behavioral/Cultural questions, and 5 Strategic/Scenario-based questions.
     
@@ -146,17 +153,39 @@ def build_interview_prep_pdf(filename, company, job_title, job_description, clie
     doc.build(story)
 
 def build_company_brief_pdf(filename, company, job_title, job_description, client):
-    """Generates a deep-dive company brief to give the candidate an interview edge."""
+    """Generates a deep-dive company brief to give the candidate an interview edge, grounded in a live web search."""
     
+    # 1. Fetch real-world context using DuckDuckGo
+    search_context = ""
+    try:
+        results = DDGS().text(f"{company} company overview mission products", max_results=3)
+        if results:
+            search_context = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+        else:
+            search_context = "No recent web data found. Base analysis strictly on the job description."
+    except Exception as e:
+        print(f"      [!] Web search failed for {company}: {e}")
+        search_context = "Web search unavailable. Base analysis strictly on the job description."
+
+    # 2. Build the strict prompt
     prompt = f"""
     Act as an elite business analyst preparing a candidate for a {job_title} interview at {company}.
-    Based on this job description and your broader knowledge of the company/industry, generate a concise, high-impact "Cheat Sheet".
+    
+    STRICT INSTRUCTIONS:
+    - Target Job Title: {job_title} (Do NOT change, abbreviate, or substitute this title).
+    - You are provided with real-world Web Search Context about the company below. You MUST base your "30-Second Background" and "Products & Market" sections on these real-world facts. 
+    - DO NOT guess or infer the company's industry or mission just from their name. If the web search says they are a logistics company, do not call them an EdTech company.
+    
+    Based on the job description and the web search context, generate a concise, high-impact "Cheat Sheet".
     
     Include EXACTLY these sections:
-    1. **The 30-Second Background:** Core mission and what they actually do.
+    1. **The 30-Second Background:** Core mission and what they actually do (Ground this in the Web Search Context).
     2. **Products & Market:** Key products/services, target audience, and who their biggest competitors are.
-    3. **The Inside Scoop:** Based on the job description, what specific problem or bottleneck is this company likely struggling with right now that this role is meant to solve?
+    3. **The Inside Scoop:** Based on the job description, what specific problem or bottleneck is this company likely struggling with right now that the {job_title} role is meant to solve?
     4. **The Mic Drop:** Give me one highly insightful, strategic question the candidate can ask the interviewer at the end of the interview to completely blow their mind and show deep industry understanding.
+
+    Web Search Context:
+    {search_context}
 
     Job Description:
     {job_description}
