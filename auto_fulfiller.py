@@ -114,7 +114,8 @@ def build_interview_prep_pdf(filename, company, job_title, job_description, clie
     Act as a senior technical recruiter for {company} hiring specifically for the EXACT role of: {job_title}. 
     
     STRICT RULES:
-    - Target Job Title: {job_title} (Do NOT change, abbreviate, or substitute this title under any circumstances).
+    - Target Job Title: {job_title}. Do NOT invent or prep for a different role.
+    - To sound natural, refer to it as "this role" or "this position" in the questions rather than repeating the exact full title 15 times.
     - Base your questions ONLY on the provided job description. 
     - Do not assume responsibilities or technical requirements that are not explicitly stated or implied by the provided job description.
 
@@ -301,7 +302,7 @@ def build_application_packages():
     print(f"Drafting full upload-ready documents for {len(passed_jobs)} roles...")
 
     for i, job in enumerate(passed_jobs):
-        job_title = job.get("query_matched", "Unknown Role")
+        job_title = job.get("title", job.get("job_title", job.get("query_matched", "Unknown Role")))
         raw_jd = "\n".join(job.get("raw_text", []))
         
         prompt = f"""
