@@ -262,7 +262,7 @@ def build_application_packages():
         return
 
     try:
-        with open("sifted_jobs.json", "r") as f: passed_jobs = json.load(f)
+        with open("deep_jobs.json", "r") as f: passed_jobs = json.load(f)
     except FileNotFoundError: return
 
     if not passed_jobs: return
