@@ -55,10 +55,17 @@ def main():
     print(f"Total raw jobs scraped: {len(raw_jobs)}")
     
     fresh_jobs = []
+    seen_signatures = set() # Tracks Company + Title combos to kill ATS spam
+    
     for job in raw_jobs:
-        if not is_job_seen(job['url']):
+        # Create a unique footprint for the job ignoring the URL
+        signature = f"{job.get('company', 'Unknown')}_{job.get('title', 'Unknown')}".lower()
+        
+        # Only process if the URL is new AND the Company+Title combo hasn't been seen today
+        if not is_job_seen(job['url']) and signature not in seen_signatures:
             fresh_jobs.append(job)
             mark_job_seen(job['url'])
+            seen_signatures.add(signature)
             
     print(f"Total FRESH jobs for evaluation: {len(fresh_jobs)}")
     
