@@ -183,12 +183,13 @@ def main():
     1. Education/Experience Matrix: If the job uses "OR" logic, does the pathway matching the candidate's degree require years of experience they do not currently possess? (Check rubric for equivalence).
     2. Technical Infrastructure: Does the job's actual engineering stack fundamentally mismatch the candidate's proven technical background?
     3. Stated Preferences & Rubric: Does the job violate ANY explicit dealbreaker mentioned in the candidate's custom rubric?
-    4. Temporary Role: Is this role an "Internship" or temporary program? (Check rubric for contractor overrides).
-    5. Predatory Business Model (The Kill Switch): Is this job posted by a third-party staffing agency, resume farm, or pay-to-play bootcamp (e.g., SynergisticIT, Revature, FDM Group)? (NOTE: Do NOT flag premier management consulting firms or legitimate corporate early-career rotational training programs).
-    6. The "Years of Experience" Trap: Does the job explicitly mandate 1, 2, or more years of full-time professional experience (e.g., "minimum of 2 years of experience... is required")? If yes, you MUST answer YES. You are strictly forbidden from hallucinating a "New Grad" label to bypass this hard mathematical requirement.
+    4. Temporary Role: Is this role an "Intern", "Internship", or temporary summer program? If it is, you MUST answer YES. 
+    5. Predatory Business Model: Is this job posted by a third-party staffing agency, resume farm, or pay-to-play bootcamp (e.g., SynergisticIT, Revature, FDM Group)? (NOTE: Do NOT flag premier management consulting firms or legitimate corporate early-career rotational training programs).
+    6. The "Years of Experience" Trap: Does the job explicitly mandate 1, 2, or more years of full-time professional experience? If yes, you MUST answer YES. You are strictly forbidden from hallucinating a "New Grad" label to bypass this requirement.
+    7. The Graduation Timeline Trap (The Kill Switch): Does the job explicitly target students graduating in late 2027 (e.g., December 2027) or Spring 2028? The candidate is a Spring 2027 graduate. If the job targets a later graduation cohort, you MUST answer YES.
     
     STEP 2: SCORING
-    * If the answer to ANY of the Alignment questions (1 through 6) is YES, the Match Score is automatically 0/100.
+    * If the answer to ANY of the Alignment questions (1 through 7) is YES, the Match Score is automatically 0/100.
     * Only if ALL Alignment answers are NO, calculate a true Match Score out of 100 based on holistic skill and narrative alignment.
 
     STEP 3: STRICT FILTERING & FORMATTING
