@@ -112,6 +112,12 @@ def main():
         
         3. THE STANDARD REQ VETO: 
         - Active Immediate-Hire Rejection: {config['hard_vetos']['reject_standard_immediate_hire_requisitions']}. Instantly reject any standard corporate job posting that lacks a future cohort target, even if labeled entry-level.
+        
+        4. THE STRICT SENIORITY KILL SWITCH:
+        - Actively scan the job description for implicit senior-level requirements. Even if the job does not explicitly ask for years of experience, you MUST score the job below 50/100 and flag it as a mismatch if it requires any of the following without explicitly stating it is a training, junior, or new-grad role:
+          * "End-to-end technical ownership" of enterprise systems or customer engagements.
+          * "Production at scale" or maintaining live, large-scale architectures independently.
+          * Serving as the "lead," "principal," or primary "technical owner" for stakeholders.
         """
     else:
         candidate_context += "Evaluate jobs based on general professional fit, standard industry entry requirements, and alignment with the provided resume skills."
