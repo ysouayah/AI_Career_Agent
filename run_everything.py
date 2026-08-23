@@ -7,6 +7,10 @@ from resume_parser import extract_resume_text
 import sys
 import tomllib
 
+# --- MANUAL PAUSE ---
+# Uncomment the line below to pause the pipeline
+sys.exit("Pipeline paused for the rest of August. See you in September.")
+
 # Load Streamlit secrets into the environment for background runs
 secrets_path = os.path.join(".streamlit", "secrets.toml")
 if os.path.exists(secrets_path):
