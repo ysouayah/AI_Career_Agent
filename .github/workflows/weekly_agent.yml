@@ -1,4 +1,4 @@
-name: Daily AI Career Agent
+name: Weekly AI Career Agent
 
 on:
   schedule:
