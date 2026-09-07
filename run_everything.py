@@ -87,10 +87,13 @@ def main():
 
     # --- DYNAMIC CONTEXT BUILDING ---
     candidate_context = "--- MASTER RESUME ---\n"
-    if os.path.exists("resume.pdf"):
+    if os.path.exists("master_resume.md"):
+        with open("master_resume.md", "r", encoding="utf-8") as f:
+            candidate_context += f.read()
+    elif os.path.exists("resume.pdf"):
         candidate_context += extract_resume_text("resume.pdf")
     else:
-        print("Warning: resume.pdf not found. Proceeding with limited context.")
+        print("Warning: no resume source found. Proceeding with limited context.")
 
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
