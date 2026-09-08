@@ -31,7 +31,19 @@ def clean_llm_artifacts(text):
         if re.match(r'^(PART \d|SECTION \d|\* PART|\*\*PART)', line.strip(), re.IGNORECASE):
             continue
         cleaned.append(line)
-    return '\n'.join(cleaned).strip()
+    out = '\n'.join(cleaned).strip()
+
+    # Strip leaked assistant voice from the opening lines (e.g. "Okay, I can act as...",
+    # "As an elite business analyst, I've prepared...", "Here are 15 questions...").
+    preamble = re.compile(
+        r'^\s*(okay|sure|certainly|of course|absolutely|got it|understood|here(\'s| is| are)|'
+        r'as an? (elite|senior|experienced)|i (can|will|have|\'ve)|below (is|are)|'
+        r'i\'ll (act|generate|prepare))\b',
+        re.IGNORECASE)
+    blocks = out.split('\n\n')
+    while blocks and preamble.match(blocks[0].strip()):
+        blocks.pop(0)
+    return '\n\n'.join(blocks).strip()
 
 # ==========================================
 # 2. PDF & CONTENT GENERATORS
@@ -105,7 +117,17 @@ def build_letter_pdf(filename, company, letter_text):
                 clean = clean.replace('**', '<b>', 1).replace('**', '</b>', 1)
             story.append(Paragraph(xml_safe(clean).replace('\n', '<br/>'), body_style))
             story.append(Spacer(1, 6))
-            
+
+
+
+    # Guarantee a sign-off: the model frequently omits it.
+    if not re.search(r'(sincerely|regards|respectfully|thank you,)\s*$',
+                     letter_text.strip()[-120:], re.IGNORECASE):
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("Sincerely,", body_style))
+        story.append(Spacer(1, 4))
+        story.append(Paragraph("<b>Youssef Souayah</b>", body_style))
+
     doc.build(story)
 
 def build_interview_prep_pdf(filename, company, job_title, job_description, client):
@@ -119,6 +141,9 @@ def build_interview_prep_pdf(filename, company, job_title, job_description, clie
     - Base your questions ONLY on the provided job description. 
     - Do not assume responsibilities or technical requirements that are not explicitly stated or implied by the provided job description.
 
+    - Output ONLY the questions. No preamble, no meta-commentary, no explanation of your approach.
+      Do not comment on the quality or completeness of the job description.
+
     Based on the following job description, generate 15 highly specific interview questions to prepare the candidate. 
     Include 5 Technical/Hard Skill questions, 5 Behavioral/Cultural questions, and 5 Strategic/Scenario-based questions.
     
@@ -129,7 +154,7 @@ def build_interview_prep_pdf(filename, company, job_title, job_description, clie
     response = client.models.generate_content(
         model='gemini-2.5-flash', contents=prompt
     )
-    prep_text = response.text.strip()
+    prep_text = clean_llm_artifacts(response.text)
 
     doc = SimpleDocTemplate(
         filename, pagesize=letter,
@@ -150,7 +175,8 @@ def build_interview_prep_pdf(filename, company, job_title, job_description, clie
                 clean = clean.replace('**', '<b>', 1).replace('**', '</b>', 1)
             story.append(Paragraph(xml_safe(clean).replace('\n', '<br/>'), body_style))
             story.append(Spacer(1, 6))
-            
+
+
     doc.build(story)
 
 def build_company_brief_pdf(filename, company, job_title, job_description, client):
@@ -174,6 +200,8 @@ def build_company_brief_pdf(filename, company, job_title, job_description, clien
     
     STRICT INSTRUCTIONS:
     - Target Job Title: {job_title} (Do NOT change, abbreviate, or substitute this title).
+    - Output ONLY the brief. No preamble, no meta-commentary, and no notices about
+      missing or unavailable web data. If web context is thin, simply write less.
     - You are provided with real-world Web Search Context about the company below. You MUST base your "30-Second Background" and "Products & Market" sections on these real-world facts. 
     - DO NOT guess or infer the company's industry or mission just from their name. If the web search says they are a logistics company, do not call them an EdTech company.
     
@@ -194,7 +222,7 @@ def build_company_brief_pdf(filename, company, job_title, job_description, clien
     
     try:
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        brief_text = response.text.strip()
+        brief_text = clean_llm_artifacts(response.text)
     except Exception as e:
         print(f"      [x] Failed to generate company brief: {e}")
         return
@@ -218,7 +246,8 @@ def build_company_brief_pdf(filename, company, job_title, job_description, clien
                 clean = clean.replace('**', '<b>', 1).replace('**', '</b>', 1)
             story.append(Paragraph(xml_safe(clean).replace('\n', '<br/>'), body_style))
             story.append(Spacer(1, 6))
-            
+
+
     doc.build(story)
 
 def check_for_extra_requirements(client, job_description):
@@ -302,8 +331,19 @@ def build_application_packages():
     print(f"Drafting full upload-ready documents for {len(passed_jobs)} roles...")
 
     for i, job in enumerate(passed_jobs):
-        job_title = job.get("title", job.get("job_title", job.get("query_matched", "Unknown Role")))
-        raw_jd = "\n".join(job.get("raw_text", []))
+        # The deep scrape lives in full_description. raw_text is only the 5-line preview card.
+        raw_jd = job.get("full_description") or ""
+
+        # Never generate documents from an empty or stub description.
+        if len(raw_jd) < 500:
+            print(f"   [!] SKIPPED {job.get('url', 'unknown URL')} -- description is only "
+                  f"{len(raw_jd)} chars. Deep scrape likely failed for this URL.")
+            continue
+
+        # Real title comes from the listing card. query_matched is a SEARCH QUERY, never a title.
+        card = job.get("raw_text") or []
+        job_title = (job.get("title") or job.get("job_title")
+                     or (card[0] if card else "") or "Unknown Role").strip()
         
         prompt = f"""
         You are an elite executive career coach and ATS optimization expert. Read this raw job data and candidate master resume.
