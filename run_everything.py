@@ -42,7 +42,8 @@ def main():
 
     # --- PHASE 3: Compiling the Data & Checking Memory ---
     print("\n--- COMPILING & FILTERING JOB DATA ---")
-    from database_manager import init_db, is_job_seen, mark_job_seen
+    from database_manager import (init_db, is_job_seen, mark_job_seen,
+                                  mark_job_rejected, mark_job_packaged, memory_stats)
     
     init_db()
     
@@ -64,10 +65,10 @@ def main():
         # Only process if the URL is new AND the Company+Title combo hasn't been seen today
         if not is_job_seen(job['url']) and signature not in seen_signatures:
             fresh_jobs.append(job)
-            mark_job_seen(job['url'])
             seen_signatures.add(signature)
-            
+
     print(f"Total FRESH jobs for evaluation: {len(fresh_jobs)}")
+    print(f"Memory state: {memory_stats()}")
     
     if len(fresh_jobs) == 0:
         print("No new jobs found this week. Bypassing AI Grader and sending status email.")
@@ -87,13 +88,10 @@ def main():
 
     # --- DYNAMIC CONTEXT BUILDING ---
     candidate_context = "--- MASTER RESUME ---\n"
-    if os.path.exists("master_resume.md"):
-        with open("master_resume.md", "r", encoding="utf-8") as f:
-            candidate_context += f.read()
-    elif os.path.exists("resume.pdf"):
+    if os.path.exists("resume.pdf"):
         candidate_context += extract_resume_text("resume.pdf")
     else:
-        print("Warning: no resume source found. Proceeding with limited context.")
+        print("Warning: resume.pdf not found. Proceeding with limited context.")
 
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
@@ -160,7 +158,9 @@ def main():
         sifted_jobs = json.loads(clean_json)
         with open("sifted_jobs.json", "w") as f:
             json.dump(sifted_jobs, f, indent=4)
-        print("Sifter successfully selected the Top targets.")
+        print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
+        if len(sifted_jobs) == 0:
+            print("!!! Sifter rejected everything. Check the rubric in user_config.json. !!!")
     except Exception as e:
         print(f"Error parsing Sifter JSON: {e}")
         return
@@ -242,9 +242,27 @@ def main():
         config=types.GenerateContentConfig(temperature=0.3)
     )
     
+    report_text = response.text.strip()
+
     with open("FINAL_STRATEGY.md", "w") as f:
         f.write("# 🎯 Weekly AI Job Strategy: High-Probability Matches\n\n")
-        f.write(response.text.strip())
+        f.write(report_text)
+
+    # Record outcomes: anything that made the report gets packaged, the rest
+    # goes on a COOLDOWN_DAYS timer rather than a permanent blacklist.
+    passed = rejected = 0
+    for job in final_targets:
+        url = job.get("url")
+        if not url:
+            continue
+        if url in report_text:
+            mark_job_packaged(url)
+            passed += 1
+        else:
+            mark_job_rejected(url)
+            rejected += 1
+    print(f"Grader outcome: {passed} passed, {rejected} scored below threshold "
+          f"(re-checked in 21 days).")
 
     # --- PHASE 7: AUTO-FULFILLMENT ENGINE ---
     # Generates tailored bullet points and cover letters right after the playbook is compiled

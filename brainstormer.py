@@ -38,8 +38,20 @@ def main():
     Preferences: {preferences}
     
     Return a strict JSON object with two keys to guide our job scraper:
-    "titles": [A list of 3 to 5 highly relevant job titles to search for]
+    "titles": [A list of 10 to 14 job titles to search for]
     "locations": [A list of 1 to 3 relevant locations, e.g., "Boston, MA", "Remote"]
+
+    RULES FOR TITLES:
+    - These are SEARCH QUERIES for job boards, not descriptions of the candidate.
+      Use the literal phrasing employers put in job titles.
+    - Cover the full range of how these roles get titled, including: Data Scientist,
+      Data Analyst, Business Analyst, Analytics Consultant, Machine Learning Engineer,
+      Research Analyst, Policy Analyst, Quantitative Analyst, Decision Scientist,
+      Associate Consultant, Technology Analyst, Rotational Analyst.
+    - Include both bare titles ("Data Analyst") and cohort-marked variants
+      ("Data Analyst 2027", "New Grad Data Scientist", "University Graduate Analyst").
+    - Do NOT include seniority markers like Senior, Staff, Principal, Lead, or Manager.
+    - Vary the vocabulary. Ten near-identical strings waste scraper budget.
     """
 
     max_retries = 5
