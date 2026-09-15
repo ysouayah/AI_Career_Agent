@@ -19,7 +19,7 @@
   },
   "hard_vetos": {
     "require_future_cohort_marker_for_full_time": true,
-    "reject_standard_immediate_hire_requisitions": true,
+    "reject_standard_immediate_hire_requisitions": false,
     "min_match_score_threshold": 85
   }
 }

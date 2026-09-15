@@ -136,6 +136,15 @@ def main():
         with open("user_config.json", "r") as f:
             config = json.load(f)
         
+        if config['hard_vetos'].get('reject_standard_immediate_hire_requisitions'):
+            req_veto = ("Instantly reject any standard corporate job posting that lacks a "
+                        "future cohort target, even if labeled entry-level.")
+        else:
+            req_veto = ("DISABLED. Do NOT reject a role merely because it lacks an explicit "
+                        "graduation-cohort marker. Many legitimate new-grad roles never use "
+                        "that phrasing. Judge such roles on the rest of the rubric, and reject "
+                        "them only if they demand professional experience the candidate lacks.")
+
         candidate_context += f"""
         1. THE DUAL-TIMELINE RULE: Evaluate jobs against two strictly acceptable pathways. If a job fits EITHER pathway, it passes.
         - Pathway A ({config['target_timelines']['pathway_a']['type']}): Target window is {config['target_timelines']['pathway_a']['target_window']}.
@@ -146,7 +155,7 @@ def main():
         - Look for intersections between {', '.join(config['industry_rubric']['primary_focus'])} and core analytical work in {', '.join(config['industry_rubric']['secondary_interdisciplinary_focus'])}.
         
         3. THE STANDARD REQ VETO: 
-        - Active Immediate-Hire Rejection: {config['hard_vetos']['reject_standard_immediate_hire_requisitions']}. Instantly reject any standard corporate job posting that lacks a future cohort target, even if labeled entry-level.
+        - {req_veto}
         
         4. THE STRICT SENIORITY KILL SWITCH:
         - Actively scan the job description for implicit senior-level requirements. Even if the job does not explicitly ask for years of experience, you MUST score the job below 50/100 and flag it as a mismatch if it requires any of the following without explicitly stating it is a training, junior, or new-grad role:
