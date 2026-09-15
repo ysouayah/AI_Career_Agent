@@ -58,9 +58,30 @@ def main():
     fresh_jobs = []
     seen_signatures = set() # Tracks Company + Title combos to kill ATS spam
     
+    def _normalize(job):
+        """Extractors only populate raw_text; title/company/location live inside it."""
+        card = job.get("raw_text") or []
+        if not job.get("title") and len(card) > 0:
+            job["title"] = str(card[0]).strip()
+        if not job.get("company") and len(card) > 2:
+            job["company"] = str(card[2]).strip()
+        if not job.get("location") and len(card) > 3:
+            job["location"] = str(card[3]).strip()
+        return job
+
+    collapsed = 0
     for job in raw_jobs:
-        # Create a unique footprint for the job ignoring the URL
-        signature = f"{job.get('company', 'Unknown')}_{job.get('title', 'Unknown')}".lower()
+        _normalize(job)
+
+        company = (job.get("company") or "").strip()
+        title = (job.get("title") or "").strip()
+        signature = f"{company}_{title}".lower().strip("_")
+
+        # If we could not recover a real company/title, fall back to the URL.
+        # A shared placeholder signature would collapse every job into one bucket.
+        if not signature:
+            signature = job["url"]
+            collapsed += 1
         
         # Only process if the URL is new AND the Company+Title combo hasn't been seen today
         if not is_job_seen(job['url']) and signature not in seen_signatures:
@@ -68,6 +89,9 @@ def main():
             seen_signatures.add(signature)
 
     print(f"Total FRESH jobs for evaluation: {len(fresh_jobs)}")
+    if collapsed:
+        print(f"Note: {collapsed} jobs had no recoverable company/title; "
+              f"deduplicated by URL instead.")
     print(f"Memory state: {memory_stats()}")
     
     if len(fresh_jobs) == 0:
