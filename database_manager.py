@@ -11,8 +11,8 @@ This version distinguishes three states:
   - 'seen'     : scraped but never actually evaluated. Re-check on the next run.
 
 Backwards compatible: on first run it migrates any existing table that has a
-url column, marking those rows 'rejected' so they re-enter the pool gradually
-rather than all at once.
+url column, marking those rows 'seen' rather than 'rejected' -- the old blacklist recorded
+URLs on sight, not after evaluation, so none of them were ever actually judged.
 """
 
 import sqlite3
@@ -68,11 +68,11 @@ def init_db():
             now = datetime.now().isoformat()
             cur.executemany(
                 "INSERT OR IGNORE INTO job_memory (url, status, first_seen, last_evaluated) "
-                "VALUES (?, 'rejected', ?, ?)",
-                [(u, now, now) for u in legacy],
+                "VALUES (?, 'seen', ?, NULL)",
+                [(u, now) for u in legacy],
             )
-            print(f"[DB] Migrated {len(legacy)} URLs from the legacy blacklist. "
-                  f"They become eligible again after {COOLDOWN_DAYS} days.")
+            print(f"[DB] Migrated {len(legacy)} URLs from the legacy blacklist as 'seen'. "
+                  f"They were never actually evaluated, so they are eligible immediately.")
 
     conn.commit()
     conn.close()
