@@ -161,10 +161,18 @@ def main():
 
     # --- PHASE 4: The Sifter (Holistic Alignment Protocol) ---
     print("\n--- PHASE 4: THE SIFTER (SELECTING TARGETS) ---")
+    sifter_profile = (
+        "CANDIDATE: Spring 2027 graduate, dual degree in Data Science and Political Science. "
+        "Background in Python, SQL, R, Tableau, machine learning coursework, data pipelines, "
+        "LLM applications, policy research, and analytics consulting. Based in Boston, MA and "
+        "cannot relocate. Seeking full-time roles starting after graduation, or part-time and "
+        "contract work during the academic year."
+    )
+
     sift_prompt = f"""
     You are triaging job listings for the candidate described below.
 
-    {candidate_context}
+    {sifter_profile}
 
     CRITICAL CONTEXT ABOUT YOUR INPUT:
     You are being shown SEARCH RESULT PREVIEW CARDS, not full job descriptions. Each card has
