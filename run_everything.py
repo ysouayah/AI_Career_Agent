@@ -88,10 +88,13 @@ def main():
 
     # --- DYNAMIC CONTEXT BUILDING ---
     candidate_context = "--- MASTER RESUME ---\n"
-    if os.path.exists("resume.pdf"):
+    if os.path.exists("master_resume.md"):
+        with open("master_resume.md", "r", encoding="utf-8") as f:
+            candidate_context += f.read()
+    elif os.path.exists("resume.pdf"):
         candidate_context += extract_resume_text("resume.pdf")
     else:
-        print("Warning: resume.pdf not found. Proceeding with limited context.")
+        print("WARNING: no resume source found. Grading will be unreliable.")
 
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n"
@@ -141,6 +144,11 @@ def main():
     2. The Technical Infrastructure & Deployment Check: Evaluate the job's actual day-to-day deployment target and underlying engineering stack. If the role operates in a fundamentally different technical environment than what the candidate has proven on their resume, reject it.
     3. The Stated Preference Check: Cross-reference the job against the candidate's explicit preferences and custom rubric constraints. If the job violates a stated dealbreaker, reject it immediately. Do NOT invent constraints the candidate has not stated.
     4. The Internship/Temporary Veto: The job MUST be a permanent post-graduation role. Reject any "Intern", "Internship", "Co-op", or summer program unless explicit consulting/contracting overrides are provided in the rubric.
+    5. The Location Check: The candidate is based in Boston and CANNOT relocate. Reject any role whose
+       location is outside commuting distance of Boston, MA, unless it is explicitly fully remote or
+       lists Boston among its offices.
+    6. The Hard Requirement Check: Reject any role requiring fluency in a language other than English,
+       Arabic, or French, or requiring a clearance, licence, or certification the candidate lacks.
 
     Jobs: {jobs_str}
 
@@ -203,9 +211,21 @@ def main():
     5. Predatory Business Model: Is this job posted by a third-party staffing agency, resume farm, or pay-to-play bootcamp (e.g., SynergisticIT, Revature, FDM Group)? (NOTE: Do NOT flag premier management consulting firms or legitimate corporate early-career rotational training programs).
     6. The "Years of Experience" Trap: Does the job explicitly mandate 1, 2, or more years of full-time professional experience? If yes, you MUST answer YES. You are strictly forbidden from hallucinating a "New Grad" label to bypass this requirement.
     7. The Graduation Timeline Trap (The Kill Switch): Does the job explicitly target students graduating in late 2027 (e.g., December 2027) or Spring 2028? The candidate is a Spring 2027 graduate. If the job targets a later graduation cohort, you MUST answer YES.
+    8. The Hard Requirement Trap: Does the job state any non-negotiable qualification the candidate
+       does not hold? This includes, but is not limited to:
+         * Fluency in a language the candidate does not speak. The candidate speaks ENGLISH,
+           ARABIC, and FRENCH only. A requirement for any other language is an automatic YES.
+         * A security clearance, professional licence, or certification the candidate lacks.
+         * A degree field or level the candidate does not have.
+       Treat "must", "required", "fluent level", and similar phrasing as non-negotiable.
+    9. The Location Trap: The candidate is based in BOSTON and CANNOT RELOCATE. Answer YES if the
+       role's work location is outside commuting distance of Boston, Massachusetts, and the posting
+       does not explicitly offer fully remote work. Roles listing Boston among several offices are
+       acceptable. If the posting implies a non-US work location (for example by requiring local
+       language fluency or local work authorisation), answer YES.
     
     STEP 2: SCORING
-    * If the answer to ANY of the Alignment questions (1 through 7) is YES, the Match Score is automatically 0/100.
+    * If the answer to ANY of the Alignment questions (1 through 9) is YES, the Match Score is automatically 0/100.
     * Only if ALL Alignment answers are NO, calculate a true Match Score out of 100 based on holistic skill and narrative alignment.
 
     STEP 3: STRICT FILTERING & FORMATTING
