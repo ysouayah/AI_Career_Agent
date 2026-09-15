@@ -108,7 +108,14 @@ def main():
                 pass
         return
 
-    jobs_str = json.dumps(fresh_jobs, indent=2)
+    # The Sifter only ever sees preview cards, so send just the usable fields.
+    sifter_cards = [
+        {"url": j.get("url"), "title": j.get("title", ""),
+         "company": j.get("company", ""), "location": j.get("location", ""),
+         "source": j.get("source", "")}
+        for j in fresh_jobs
+    ]
+    jobs_str = json.dumps(sifter_cards, indent=2)
 
     # --- DYNAMIC CONTEXT BUILDING ---
     candidate_context = "--- MASTER RESUME ---\n"
@@ -155,30 +162,45 @@ def main():
     # --- PHASE 4: The Sifter (Holistic Alignment Protocol) ---
     print("\n--- PHASE 4: THE SIFTER (SELECTING TARGETS) ---")
     sift_prompt = f"""
-    You are an elite recruiter. Here is your client's profile and explicit preferences:
+    You are triaging job listings for the candidate described below.
+
     {candidate_context}
 
-    Review these job cards. You must act as a strict but highly nuanced HR filter. 
-    
-    THE HOLISTIC ALIGNMENT PROTOCOL:
-    Before selecting a job, you must perform a nuanced, holistic evaluation of the candidate's application materials against the true nature of the job. If the job fails any of these alignment checks, you MUST reject it:
-    
-    1. The Education/Experience Matrix Check: Pay strict attention to "OR" logic in qualifications. You must isolate the specific pathway that matches the candidate's highest degree. Mathematically calculate the candidate's exact years of full-time professional experience from their resume, and compare it against the job's minimum requirement for that pathway. 
-    STRICT BINDING RULE: If (Candidate's Actual Years) is less than (Job's Required Years), the Match Score is automatically 0/100. Exceptional narrative alignment does NOT override a mathematical deficit in required years, unless explicitly overridden by the candidate's preferences.
-    2. The Technical Infrastructure & Deployment Check: Evaluate the job's actual day-to-day deployment target and underlying engineering stack. If the role operates in a fundamentally different technical environment than what the candidate has proven on their resume, reject it.
-    3. The Stated Preference Check: Cross-reference the job against the candidate's explicit preferences and custom rubric constraints. If the job violates a stated dealbreaker, reject it immediately. Do NOT invent constraints the candidate has not stated.
-    4. The Internship/Temporary Veto: The job MUST be a permanent post-graduation role. Reject any "Intern", "Internship", "Co-op", or summer program unless explicit consulting/contracting overrides are provided in the rubric.
-    5. The Location Check: The candidate is based in Boston and CANNOT relocate. Reject any role whose
-       location is outside commuting distance of Boston, MA, unless it is explicitly fully remote or
-       lists Boston among its offices.
-    6. The Hard Requirement Check: Reject any role requiring fluency in a language other than English,
-       Arabic, or French, or requiring a clearance, licence, or certification the candidate lacks.
+    CRITICAL CONTEXT ABOUT YOUR INPUT:
+    You are being shown SEARCH RESULT PREVIEW CARDS, not full job descriptions. Each card has
+    only a title, company, location, and source. You CANNOT see requirements, years of
+    experience, tech stack, languages, or graduation cohorts. A later stage scrapes the full
+    description and applies the strict rubric.
+
+    YOUR JOB IS RECALL, NOT PRECISION. Your only task is to discard listings that are
+    obviously unsuitable FROM THE TITLE, COMPANY, AND LOCATION ALONE, and pass everything
+    else forward.
+
+    REJECT a card only when one of these is visible on its face:
+    1. The title contains "Intern", "Internship", "Co-op", "Summer Analyst", or "Fellowship".
+    2. The title contains a seniority marker: Senior, Sr., Staff, Principal, Lead, Manager,
+       Director, Head of, VP, Architect, or roman numerals III+.
+    3. The title requires a degree the candidate does not have (e.g. "PhD Required", "MD", "JD").
+    4. The location is clearly outside commuting distance of Boston, MA and is not marked
+       Remote. Massachusetts locations and "Remote" are acceptable. Cards listing several
+       cities including Boston are acceptable.
+    5. The company is a known resume farm or pay-to-play bootcamp (SynergisticIT, Revature,
+       FDM Group). Legitimate consulting firms and staffing arms of real employers are fine.
+
+    DO NOT REJECT for anything you cannot see on the card. Missing information is NOT a reason
+    to reject. If you are unsure, KEEP the job. A wrongly kept job costs one deep scrape; a
+    wrongly rejected job is lost entirely.
+
+    From the survivors, return the 15 whose titles align best with the candidate's background
+    in data science, analytics, machine learning, consulting, research, and public policy.
+    Prefer titles that signal early-career or new-graduate hiring.
 
     Jobs: {jobs_str}
 
-    Output ONLY a valid JSON array of the objects for the selected jobs that survived the Protocol (up to 15 max). Do not include markdown or any other text.
+    Output ONLY a valid JSON array of the selected job objects, copied verbatim from the input.
+    Maximum 15. No markdown, no commentary.
     """
-    
+
     sifter_response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=sift_prompt,
