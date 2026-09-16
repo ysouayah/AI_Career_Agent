@@ -35,8 +35,9 @@ async def scrape_deep_links():
                     
                     # Grab ALL the text on the page
                     text = await page_hs.locator("body").inner_text()
-                    # We cap it at 4000 characters so we just get the job description, not the page footers
-                    job['full_description'] = text[:4000] 
+                    # 12k keeps the tail of long postings, where qualifications and
+                    # years-of-experience requirements usually live.
+                    job['full_description'] = text[:12000] 
                     deep_results.append(job)
                     print(f"   [+] Scraped: {job.get('title', 'Handshake Job')}")
                 except Exception as e:
@@ -57,7 +58,7 @@ async def scrape_deep_links():
                     await page_pub.wait_for_timeout(3000) 
                     
                     text = await page_pub.locator("body").inner_text()
-                    job['full_description'] = text[:4000]
+                    job['full_description'] = text[:12000]
                     deep_results.append(job)
                     print(f"   [+] Scraped: {job.get('title', 'Public Job')}")
                 except Exception as e:

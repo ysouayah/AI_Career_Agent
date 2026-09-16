@@ -23,6 +23,23 @@ def xml_safe(text):
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
     return text.replace('§B§', '<b>').replace('§/B§', '</b>')
 
+def url_matches(url, text):
+    """Job boards append tracking params, and the model often drops them when
+    copying a URL into the report. Match on the bare URL, then on the numeric
+    job ID, before giving up."""
+    if not url:
+        return False
+    base = url.split("?")[0].split("#")[0].rstrip("/")
+    if base and base in text:
+        return True
+    if url in text:
+        return True
+    for job_id in re.findall(r"\d{6,}", base):
+        if job_id in text:
+            return True
+    return False
+
+
 def clean_llm_artifacts(text):
     """Scrubs out leaked AI conversational filler or markdown code block wrappers."""
     lines = text.replace("```markdown", "").replace("```", "").split('\n')
@@ -121,8 +138,8 @@ def build_letter_pdf(filename, company, letter_text):
 
 
     # Guarantee a sign-off: the model frequently omits it.
-    if not re.search(r'(sincerely|regards|respectfully|thank you,)\s*$',
-                     letter_text.strip()[-120:], re.IGNORECASE):
+    if not re.search(r'(sincerely|best regards|kind regards|respectfully|warm regards)',
+                     letter_text.strip()[-250:], re.IGNORECASE):
         story.append(Spacer(1, 10))
         story.append(Paragraph("Sincerely,", body_style))
         story.append(Spacer(1, 4))
@@ -307,7 +324,7 @@ def build_application_packages():
     # Filter passed_jobs down to ONLY the ones whose URL appears in the final report
     final_jobs = []
     for job in passed_jobs:
-        if job.get("url", "MISSING_URL") in approved_text:
+        if url_matches(job.get("url", ""), approved_text):
             final_jobs.append(job)
 
     passed_jobs = final_jobs
@@ -358,11 +375,40 @@ def build_application_packages():
         |||
         PART 2: The COMPLETE, TAILORED RESUME. 
         - Keep my Name, Contact Info, Education, and Skills exactly as formatted.
-        - PRUNE: Delete older or irrelevant jobs/projects/leadership roles if they do not add direct value to this specific role, ensuring the final resume is highly targeted and fits on one page.
-        - REWRITE: For the projects/experience you keep, rewrite the bullet points from scratch to aggressively match the tech stack, verbs, and keywords in the Job Data.
+        - PRUNE: Cut the least relevant experience, projects, and leadership entries so the
+          result fits one page. Keep at least one leadership entry -- never delete the whole
+          Leadership section.
+        - REORDER and REFRAME the bullets you keep so the most relevant work appears first and
+          the language echoes the job description where it HONESTLY applies.
+
+        ABSOLUTE GROUNDING RULE -- this overrides every other instruction:
+        Every claim must be traceable to the master resume. You may reword, reorder, shorten,
+        and re-emphasize. You may NOT:
+          * add a skill, tool, language, framework, certification, or coursework that does not
+            appear in the master resume;
+          * claim experience in a domain (finance, healthcare, defence, etc.) the master resume
+            does not show;
+          * invent or inflate metrics, dates, scope, team sizes, or job titles.
+        If the job asks for something the candidate does not have, LEAVE IT OUT. An honest gap
+        is recoverable; a fabricated qualification is not.
+
+        - PRESERVE SPECIFICS: Keep concrete numbers, named tools, named organisations, and named
+          methods exactly as written in the master resume. Do not generalise "Apollo" into
+          "external APIs", "+1.51 pts vs +0.85" into "significant improvement", or
+          "LinkedIn, Indeed, and Handshake" into "multiple job boards". Specificity is what
+          makes the resume credible and what ATS keyword matching depends on.
         - FORMAT: You must strictly use the exact Markdown tags provided (# Name, ## SECTIONS, ### Roles | Dates, - bullets). Do not break this formatting.
         |||
         PART 3: Write a confident, direct 3-paragraph cover letter ready to send.
+        - The SAME GROUNDING RULE applies. Every skill, course, and experience you cite must
+          appear in the master resume. Do not claim knowledge of a technique the resume does not
+          evidence, and do not manufacture enthusiasm for an industry the candidate has no
+          stated connection to.
+        - Write about what the candidate HAS done and why it transfers. Do not assert domain
+          expertise they lack; where a gap is obvious, show transferable reasoning instead of
+          papering over it.
+        - End with "Sincerely," on its own line, then the candidate's name. Do not add a
+          postscript or any commentary after the signature.
         """
         
         max_retries = 5

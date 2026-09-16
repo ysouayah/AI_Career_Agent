@@ -1,5 +1,6 @@
 import subprocess
 import json
+import re
 import os
 from google import genai
 from google.genai import types
@@ -14,6 +15,23 @@ if os.path.exists(secrets_path):
         secrets = tomllib.load(f)
         for key, value in secrets.items():
             os.environ[key] = str(value)
+
+def url_matches(url, text):
+    """Job boards append tracking params, and the model often drops them when
+    copying a URL into the report. Match on the bare URL, then on the numeric
+    job ID, before giving up."""
+    if not url:
+        return False
+    base = url.split("?")[0].split("#")[0].rstrip("/")
+    if base and base in text:
+        return True
+    if url in text:
+        return True
+    for job_id in re.findall(r"\d{6,}", base):
+        if job_id in text:
+            return True
+    return False
+
 
 def run_script(script_name):
     print(f"\n[{script_name}] >> Initiating sequence...")
@@ -109,8 +127,12 @@ def main():
         return
 
     # The Sifter only ever sees preview cards, so send just the usable fields.
+    # Each card carries an integer id. The model returns ids only -- it never copies a URL,
+    # because LLMs reliably mis-pair fields when transcribing large arrays.
+    for i, j in enumerate(fresh_jobs):
+        j["id"] = i
     sifter_cards = [
-        {"url": j.get("url"), "title": j.get("title", ""),
+        {"id": j["id"], "title": j.get("title", ""),
          "company": j.get("company", ""), "location": j.get("location", ""),
          "source": j.get("source", "")}
         for j in fresh_jobs
@@ -214,8 +236,9 @@ def main():
 
     Jobs: {jobs_str}
 
-    Output ONLY a valid JSON array of the selected job objects, copied verbatim from the input.
-    Maximum 15. No markdown, no commentary.
+    Output ONLY a valid JSON array of the integer "id" values of the jobs you selected.
+    Example: [3, 17, 204, 511]
+    Maximum 15 ids. No markdown, no commentary, no other fields.
     """
 
     sifter_response = client.models.generate_content(
@@ -226,7 +249,12 @@ def main():
     
     try:
         clean_json = sifter_response.text.replace("```json", "").replace("```", "").strip()
-        sifted_jobs = json.loads(clean_json)
+        chosen_ids = json.loads(clean_json)
+        by_id = {j["id"]: j for j in fresh_jobs}
+        sifted_jobs = [by_id[i] for i in chosen_ids if isinstance(i, int) and i in by_id]
+        dropped = len(chosen_ids) - len(sifted_jobs)
+        if dropped:
+            print(f"Warning: Sifter returned {dropped} unknown id(s); ignored.")
         with open("sifted_jobs.json", "w") as f:
             json.dump(sifted_jobs, f, indent=4)
         print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
@@ -296,9 +324,11 @@ def main():
     2. THE SORTING RULE: You MUST sort the surviving jobs in descending order by Match Score.
     
     Format EVERY surviving job EXACTLY like the template below. 
-    CRITICAL HYPERLINK INSTRUCTION: You MUST wrap the Job Title in square brackets `[]` and immediately follow it with the job's exact URL from the JSON data in parentheses `()` to create a valid Markdown link. Do not forget the brackets or parentheses!
+    CRITICAL LINK INSTRUCTION: Do NOT write the URL. Instead write the token JOB_URL_<id>, using
+    the job's own integer "id" field from the JSON. The system substitutes the real link
+    afterwards. Writing a URL yourself will break the report.
     
-    ### [EXACT JOB TITLE FROM JSON](EXACT URL FROM JSON)
+    ### [EXACT JOB TITLE FROM JSON](JOB_URL_<id>)
     
     * **Company:** 🏢 INSERT_COMPANY_NAME
     * **Match Score:** 🎯 [Score]/100  
@@ -327,6 +357,22 @@ def main():
     
     report_text = response.text.strip()
 
+    # Swap JOB_URL_<id> tokens for the real URLs. The model never handles a URL, so a
+    # title can no longer be paired with another job's link.
+    passed_ids = set()
+    for job in final_targets:
+        jid = job.get("id")
+        if jid is None:
+            continue
+        token = f"JOB_URL_{jid}"
+        if token in report_text:
+            report_text = report_text.replace(token, job.get("url", ""))
+            passed_ids.add(jid)
+
+    leftover = re.findall(r"JOB_URL_\d+", report_text)
+    if leftover:
+        print(f"Warning: {len(leftover)} unresolved link token(s) in report: {set(leftover)}")
+
     with open("FINAL_STRATEGY.md", "w") as f:
         f.write("# 🎯 Weekly AI Job Strategy: High-Probability Matches\n\n")
         f.write(report_text)
@@ -338,7 +384,7 @@ def main():
         url = job.get("url")
         if not url:
             continue
-        if url in report_text:
+        if job.get("id") in passed_ids:
             mark_job_packaged(url)
             passed += 1
         else:
