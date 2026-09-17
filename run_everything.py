@@ -230,9 +230,14 @@ def main():
     to reject. If you are unsure, KEEP the job. A wrongly kept job costs one deep scrape; a
     wrongly rejected job is lost entirely.
 
-    From the survivors, return the 15 whose titles align best with the candidate's background
-    in data science, analytics, machine learning, consulting, research, and public policy.
-    Prefer titles that signal early-career or new-graduate hiring.
+    From the survivors, return EXACTLY 15 ids -- the 15 whose titles align best with the
+    candidate's background in data science, analytics, machine learning, consulting, research,
+    and public policy. Prefer titles that signal early-career or new-graduate hiring.
+
+    Returning fewer than 15 is only acceptable if fewer than 15 cards survive the reject rules
+    above. Do not ration the list for quality: a later stage reads the full description of each
+    one and scores it strictly. Your budget exists to be spent. If you find yourself returning
+    5 or 6, you are being too strict -- go back and include the next-best candidates.
 
     Jobs: {jobs_str}
 
@@ -258,6 +263,9 @@ def main():
         with open("sifted_jobs.json", "w") as f:
             json.dump(sifted_jobs, f, indent=4)
         print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
+        for j in sifted_jobs:
+            print(f"   -> [{j.get('id')}] {j.get('company','?')} | {j.get('title','?')[:60]}"
+                  f" | {j.get('location','?')}")
         if len(sifted_jobs) == 0:
             print("!!! Sifter rejected everything. Check the rubric in user_config.json. !!!")
     except Exception as e:
@@ -324,9 +332,14 @@ def main():
     2. THE SORTING RULE: You MUST sort the surviving jobs in descending order by Match Score.
     
     Format EVERY surviving job EXACTLY like the template below. 
-    CRITICAL LINK INSTRUCTION: Do NOT write the URL. Instead write the token JOB_URL_<id>, using
-    the job's own integer "id" field from the JSON. The system substitutes the real link
-    afterwards. Writing a URL yourself will break the report.
+    CRITICAL LINK INSTRUCTION: You MUST wrap the Job Title in square brackets `[]` and
+    immediately follow it with parentheses `()` containing the token JOB_URL_<id>, where <id>
+    is the job's own integer "id" field from the JSON. This creates a valid Markdown link once
+    the system substitutes the real URL. Do NOT write the URL yourself, and do NOT omit the
+    brackets or parentheses -- either mistake breaks the report.
+    Correct:   ### [Junior Data Analyst](JOB_URL_42)
+    Wrong:     ### Junior Data Analyst (JOB_URL_42)
+    Wrong:     ### [Junior Data Analyst](https://www.linkedin.com/...)
     
     ### [EXACT JOB TITLE FROM JSON](JOB_URL_<id>)
     
