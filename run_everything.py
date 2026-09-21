@@ -127,6 +127,51 @@ def main():
         return
 
     # The Sifter only ever sees preview cards, so send just the usable fields.
+
+    # --- DETERMINISTIC PRE-FILTER ---------------------------------------------------
+    # Every rule here is visible on the card, so Python applies it exactly. Handing 800+
+    # cards to a model and asking it to enforce rules produced picks in Canada, a
+    # "Lead Scientist", and four postings from a job aggregator.
+    SENIOR = re.compile(r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|"
+                        r"vp|vice president|architect|iii|iv)\b", re.I)
+    INTERN = re.compile(r"\b(intern|internship|co-?op|summer analyst|fellowship)\b", re.I)
+    BLOCKED = ("jobright", "synergisticit", "revature", "fdm group", "lensa",
+               "jobs via dice", "hiring cafe")
+
+    def _location_ok(loc):
+        l = (loc or "").lower().strip()
+        if not l:
+            return True                      # unknown -> let the grader decide
+        if "remote" in l:
+            return True
+        if "boston" in l or "cambridge" in l or "massachusetts" in l or re.search(r",\s*ma\b", l):
+            return True
+        if l in ("united states", "us", "usa"):
+            return True                      # nationwide listings are usually remote
+        return False
+
+    reasons = {"senior": 0, "intern": 0, "location": 0, "blocked": 0}
+    eligible = []
+    for j in fresh_jobs:
+        title = j.get("title", "") or ""
+        company = (j.get("company", "") or "").lower()
+        if any(b in company for b in BLOCKED):
+            reasons["blocked"] += 1
+        elif INTERN.search(title):
+            reasons["intern"] += 1
+        elif SENIOR.search(title):
+            reasons["senior"] += 1
+        elif not _location_ok(j.get("location")):
+            reasons["location"] += 1
+        else:
+            eligible.append(j)
+    print(f"Pre-filter kept {len(eligible)} of {len(fresh_jobs)}. Removed: {reasons}")
+    fresh_jobs = eligible
+
+    if not fresh_jobs:
+        print("Pre-filter removed every job. Nothing to sift.")
+        return
+
     # Each card carries an integer id. The model returns ids only -- it never copies a URL,
     # because LLMs reliably mis-pair fields when transcribing large arrays.
     for i, j in enumerate(fresh_jobs):
@@ -211,9 +256,9 @@ def main():
     experience, tech stack, languages, or graduation cohorts. A later stage scrapes the full
     description and applies the strict rubric.
 
-    YOUR JOB IS RECALL, NOT PRECISION. Your only task is to discard listings that are
-    obviously unsuitable FROM THE TITLE, COMPANY, AND LOCATION ALONE, and pass everything
-    else forward.
+    Every card below has ALREADY passed hard filters for seniority, internships, location,
+    and blocked companies. Do not re-filter on those grounds. YOUR ONLY JOB IS RANKING:
+    choose the cards whose titles best fit the candidate.
 
     REJECT a card only when one of these is visible on its face:
     1. The title contains "Intern", "Internship", "Co-op", "Summer Analyst", or "Fellowship".
@@ -285,6 +330,16 @@ def main():
     with open("deep_jobs.json", "r") as f:
         final_targets = json.load(f)
 
+    # LinkedIn prints this on postings that have closed. No point grading them.
+    closed = [j for j in final_targets
+              if "no longer accepting applications" in (j.get("full_description") or "").lower()]
+    if closed:
+        for j in closed:
+            if j.get("url"):
+                mark_job_rejected(j["url"])
+        final_targets = [j for j in final_targets if j not in closed]
+        print(f"Dropped {len(closed)} closed posting(s) before grading.")
+
     all_jobs_text = json.dumps(final_targets, indent=2)
 
     print(f"Batch analyzing {len(final_targets)} descriptions to save API tokens...")
@@ -307,7 +362,7 @@ def main():
     2. Technical Infrastructure: Does the job's actual engineering stack fundamentally mismatch the candidate's proven technical background?
     3. Stated Preferences & Rubric: Does the job violate ANY explicit dealbreaker mentioned in the candidate's custom rubric?
     4. Temporary Role: Is this role an "Intern", "Internship", or temporary summer program? If it is, you MUST answer YES. 
-    5. Predatory Business Model: Is this job posted by a third-party staffing agency, resume farm, or pay-to-play bootcamp (e.g., SynergisticIT, Revature, FDM Group)? (NOTE: Do NOT flag premier management consulting firms or legitimate corporate early-career rotational training programs).
+    5. Predatory Business Model: Is this job posted by a third-party staffing agency, resume farm, or pay-to-play bootcamp (e.g., SynergisticIT, Revature, FDM Group), or a job aggregator reposting other companies' roles (e.g., Jobright, Lensa, Jobs via Dice)? (NOTE: Do NOT flag premier management consulting firms or legitimate corporate early-career rotational training programs).
     6. The "Years of Experience" Trap: Does the job explicitly mandate 1, 2, or more years of full-time professional experience? If yes, you MUST answer YES. You are strictly forbidden from hallucinating a "New Grad" label to bypass this requirement.
     7. The Graduation Timeline Trap (The Kill Switch): Does the job explicitly target students graduating in late 2027 (e.g., December 2027) or Spring 2028? The candidate is a Spring 2027 graduate. If the job targets a later graduation cohort, you MUST answer YES.
     8. The Hard Requirement Trap: Does the job state any non-negotiable qualification the candidate
