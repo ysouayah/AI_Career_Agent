@@ -1,6 +1,7 @@
 import subprocess
 import json
 import re
+import collections
 import os
 from google import genai
 from google.genai import types
@@ -138,19 +139,19 @@ def main():
     BLOCKED = ("jobright", "synergisticit", "revature", "fdm group", "lensa",
                "jobs via dice", "hiring cafe")
 
+    # Remote postings usually show the company's HQ city on the card, so a US city
+    # outside Massachusetts does NOT mean the role is on-site elsewhere. Only reject what
+    # the card makes certain: non-US postings. Gate 9 reads the full JD for everything else.
+    FOREIGN = re.compile(r"\b(canada|ontario|toronto|vancouver|montreal|quebec|united kingdom|"
+                         r"england|london|ireland|dublin|india|bengaluru|bangalore|hyderabad|"
+                         r"pune|germany|berlin|france|netherlands|amsterdam|spain|poland|"
+                         r"singapore|australia|mexico|brazil|philippines|israel|emea|apac)\b", re.I)
+
     def _location_ok(loc):
-        l = (loc or "").lower().strip()
-        if not l:
-            return True                      # unknown -> let the grader decide
-        if "remote" in l:
-            return True
-        if "boston" in l or "cambridge" in l or "massachusetts" in l or re.search(r",\s*ma\b", l):
-            return True
-        if l in ("united states", "us", "usa"):
-            return True                      # nationwide listings are usually remote
-        return False
+        return not FOREIGN.search(loc or "")
 
     reasons = {"senior": 0, "intern": 0, "location": 0, "blocked": 0}
+    rejected_locs = collections.Counter()
     eligible = []
     for j in fresh_jobs:
         title = j.get("title", "") or ""
@@ -163,14 +164,35 @@ def main():
             reasons["senior"] += 1
         elif not _location_ok(j.get("location")):
             reasons["location"] += 1
+            rejected_locs[j.get("location")] += 1
         else:
             eligible.append(j)
     print(f"Pre-filter kept {len(eligible)} of {len(fresh_jobs)}. Removed: {reasons}")
+    if rejected_locs:
+        print(f"   Top rejected locations: {rejected_locs.most_common(8)}")
     fresh_jobs = eligible
 
     if not fresh_jobs:
         print("Pre-filter removed every job. Nothing to sift.")
         return
+
+    ROLE = ("data scien", "data analy", "machine learning", "analytics", "research analyst",
+            "policy", "quantitative", "decision scien", "consult", "ai ", "ml ", "business analyst")
+    EARLY = ("new grad", "entry", "junior", "early career", "2027", "university", "graduate",
+             "associate", "rotational", "analyst i", "level 1")
+
+    def _relevance(job):
+        t = " " + (job.get("title") or "").lower() + " "
+        role = sum(k in t for k in ROLE)
+        # Early-career words only count on titles that are already in the right field --
+        # otherwise "Warehouse Associate" outranks "Research Analyst".
+        return role + (2 * sum(k in t for k in EARLY) if role else 0)
+
+    SIFTER_CAP = 80
+    fresh_jobs.sort(key=_relevance, reverse=True)
+    if len(fresh_jobs) > SIFTER_CAP:
+        print(f"Capping Sifter input to the {SIFTER_CAP} most relevant of {len(fresh_jobs)} titles.")
+        fresh_jobs = fresh_jobs[:SIFTER_CAP]
 
     # Each card carries an integer id. The model returns ids only -- it never copies a URL,
     # because LLMs reliably mis-pair fields when transcribing large arrays.
@@ -291,31 +313,36 @@ def main():
     Maximum 15 ids. No markdown, no commentary, no other fields.
     """
 
-    sifter_response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=sift_prompt,
-        config=types.GenerateContentConfig(temperature=0.3)
-    )
-    
-    try:
-        clean_json = sifter_response.text.replace("```json", "").replace("```", "").strip()
-        chosen_ids = json.loads(clean_json)
-        by_id = {j["id"]: j for j in fresh_jobs}
-        sifted_jobs = [by_id[i] for i in chosen_ids if isinstance(i, int) and i in by_id]
-        dropped = len(chosen_ids) - len(sifted_jobs)
-        if dropped:
-            print(f"Warning: Sifter returned {dropped} unknown id(s); ignored.")
-        with open("sifted_jobs.json", "w") as f:
-            json.dump(sifted_jobs, f, indent=4)
-        print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
-        for j in sifted_jobs:
-            print(f"   -> [{j.get('id')}] {j.get('company','?')} | {j.get('title','?')[:60]}"
-                  f" | {j.get('location','?')}")
-        if len(sifted_jobs) == 0:
-            print("!!! Sifter rejected everything. Check the rubric in user_config.json. !!!")
-    except Exception as e:
-        print(f"Error parsing Sifter JSON: {e}")
-        return
+    if len(fresh_jobs) <= 15:
+        # Short enough to deep-scrape in full -- no reason to let a model drop any.
+        print(f"Only {len(fresh_jobs)} eligible jobs -- skipping the Sifter and deep-scraping all.")
+        sifted_jobs = list(fresh_jobs)
+    else:
+        sifter_response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=sift_prompt,
+            config=types.GenerateContentConfig(temperature=0.3)
+        )
+        try:
+            clean_json = sifter_response.text.replace("```json", "").replace("```", "").strip()
+            chosen_ids = json.loads(clean_json)
+            by_id = {j["id"]: j for j in fresh_jobs}
+            sifted_jobs = [by_id[i] for i in chosen_ids if isinstance(i, int) and i in by_id]
+            dropped = len(chosen_ids) - len(sifted_jobs)
+            if dropped:
+                print(f"Warning: Sifter returned {dropped} unknown id(s); ignored.")
+        except Exception as e:
+            print(f"Error parsing Sifter JSON: {e}")
+            return
+
+    with open("sifted_jobs.json", "w") as f:
+        json.dump(sifted_jobs, f, indent=4)
+    print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
+    for j in sifted_jobs:
+        print(f"   -> [{j.get('id')}] {j.get('company','?')} | {j.get('title','?')[:60]}"
+              f" | {j.get('location','?')}")
+    if len(sifted_jobs) == 0:
+        print("!!! Nothing selected for deep scraping. !!!")
 
     # --- PHASE 5: The Deep Scrape ---
     run_script("deep_scraper.py")
