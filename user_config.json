@@ -1,5 +1,14 @@
 {
   "candidate_name": "Youssef Souayah",
+  "candidate_facts": {
+    "graduation": "2027-05",
+    "earliest_start": "2027-09",
+    "highest_degree": "bachelors",
+    "spoken_languages": ["english", "arabic", "french"],
+    "location": "Boston, MA",
+    "can_relocate": false,
+    "has_security_clearance": false
+  },
   "target_timelines": {
     "pathway_a": {
       "type": "Part-Time / Internship / Contract",
@@ -18,8 +27,8 @@
     "preferred_tech_stack": ["Python", "SQL", "PostgreSQL", "Pandas", "R", "Tableau"]
   },
   "hard_vetos": {
-    "require_future_cohort_marker_for_full_time": true,
-    "reject_standard_immediate_hire_requisitions": false,
+    "accepted_employment_types": ["full_time"],
+    "max_required_years_experience": 0,
     "min_match_score_threshold": 85
   }
 }
