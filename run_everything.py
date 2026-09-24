@@ -128,6 +128,10 @@ def relevance(job):
 # ------------------------------------------------------------------------------------------
 
 EXTRACTION_PROMPT = """You extract hiring requirements from a single job posting.
+The posting is for: {title} at {company}.
+
+The page text may also contain unrelated sections -- "Similar jobs", "People also viewed", or
+other listings. Ignore them. Extract ONLY from the posting for the role named above.
 Report only what the posting states. Do not infer, guess, or evaluate any candidate.
 
 Return ONE JSON object with exactly these keys:
@@ -137,27 +141,41 @@ Return ONE JSON object with exactly these keys:
     staffing_agency = a recruiter or contractor placing workers at a client company.
 "employment_type": "full_time" | "part_time" | "internship" | "contract" | "temporary" | "unknown"
 "min_years_required": integer or null
-    The MINIMUM years of professional experience the posting REQUIRES. "0-2 years" -> 0.
-    "No experience required" -> 0. Experience that is "preferred", "recommended", or
-    "a plus" does NOT count here. null if the posting states no requirement.
+    MINIMUM years of professional experience REQUIRED. "0-2 years" -> 0. "No experience
+    required" -> 0. Experience that is "preferred", "recommended", or "a plus" does NOT count.
+    Years of experience with a specific TOOL (e.g. "2+ years of Python") is not professional
+    experience. null if no requirement is stated.
 "years_preferred": integer or null
 "degree_required": "none" | "bachelors" | "masters" | "phd" | null
     The minimum degree REQUIRED. A degree that is only preferred does not count.
 "work_mode": "onsite" | "hybrid" | "remote" | "unknown"
-"work_location": string or null   (city and state or country of the office, if any)
-"work_location_in_massachusetts": true | false | null
+"work_locations": list of office locations named for this role, e.g. ["Boston, MA"]
+"any_location_in_massachusetts": true | false | null
+    true if ANY of the role's work locations is in Massachusetts.
 "relocation_required": true | false
-    true if the role requires moving anywhere -- INCLUDING when relocation is reimbursed,
-    assisted, or appears as a listed requirement (e.g. "Relocation to the Madison, WI area").
-"remote_residency_restriction": string or null
-    Where a remote worker must live, e.g. "EU only", "United States", "California". null if none.
+    true only if the hire MUST move. "Relocation assistance available" or "relocation
+    support offered" is NOT a requirement. A listed requirement such as "Relocation to the
+    Madison, WI area (reimbursed)" IS.
+"remote_residency_restriction": string or null   e.g. "EU only", "United States", "California"
 "remote_residency_allows_massachusetts": true | false | null   (null if no restriction)
-"requires_security_clearance": true | false
+"requires_active_clearance": true | false
+    true only if the hire must ALREADY HOLD an active security clearance at hire.
+"requires_clearance_eligibility": true | false
+    true if the hire must be able or eligible to obtain a clearance or public-trust check.
 "required_languages": list of languages OTHER than English that are REQUIRED, not preferred.
-"graduation_window_start": "YYYY-MM" or null   (earliest graduation date accepted, if a cohort)
+"graduation_window_start": "YYYY-MM" or null
 "graduation_window_end": "YYYY-MM" or null
 "start_date": "immediate" | "YYYY-MM" | null
-    "immediate" only if the posting explicitly says immediate or ASAP.
+    Use "YYYY-MM" ONLY when a specific month or season is stated (Summer -> 06, Fall -> 09,
+    Winter -> 01). If only a year is given, return null. "immediate" only if the posting
+    explicitly says immediate or ASAP.
+"evidence": object
+    For EVERY value that could disqualify a new graduate, add a key holding a SHORT VERBATIM
+    QUOTE (under 25 words) copied exactly from the posting. Use these keys:
+      employer_type, employment_type, min_years_required, degree_required,
+      relocation_required, work_location, remote_residency_restriction,
+      requires_active_clearance, required_languages, graduation_window, start_date
+    If you cannot quote text from the posting that supports a value, do not assert it.
 
 POSTING:
 <<<
@@ -170,63 +188,94 @@ DEGREE_RANK = {"none": 0, "bachelors": 1, "masters": 2, "phd": 3}
 
 
 def extract_requirements(client, job):
-    raw = call_model(client, EXTRACTION_PROMPT.format(description=job.get("full_description", "")),
-                     json_mode=True, temperature=0.0)
-    fields = json.loads(strip_fences(raw))
+    prompt = EXTRACTION_PROMPT.format(title=job.get("title", ""), company=job.get("company", ""),
+                                      description=job.get("full_description", ""))
+    fields = json.loads(strip_fences(call_model(client, prompt, json_mode=True, temperature=0.0)))
     return fields if isinstance(fields, dict) else {}
 
 
-def apply_rules(f, facts, vetos):
-    """Every hard rule is one explicit check on an extracted field. Returns the reasons a job
-    fails; an empty list means it passes."""
-    reasons = []
+def _norm(text):
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def quote_found(quote, text):
+    """A disqualifying claim only counts if its supporting quote really appears in the posting."""
+    q = _norm(quote)
+    return len(q) >= 8 and q in _norm(text)
+
+
+def apply_rules(f, facts, vetos, text):
+    """Each hard rule is one explicit check on an extracted field, and fires ONLY when the model's
+    supporting quote is verified against the posting text. Returns (reasons, unverified)."""
+    evidence = f.get("evidence") or {}
+    reasons, unverified = [], []
+
+    def check(key, condition, message):
+        if not condition:
+            return
+        quote = evidence.get(key)
+        if isinstance(quote, str) and quote_found(quote, text):
+            reasons.append(f'{message} — "{quote.strip()[:140]}"')
+        else:
+            unverified.append(message)
+
     grad = facts["graduation"]
     spoken = {lang.lower() for lang in facts["spoken_languages"]} | {"english"}
+    in_ma = f.get("any_location_in_massachusetts")
+    where = ", ".join(f.get("work_locations") or []) or "location unstated"
 
     employer = f.get("employer_type")
-    if employer and employer != "direct_employer":
-        reasons.append(f"posted by a {employer.replace('_', ' ')}")
+    check("employer_type", employer and employer != "direct_employer",
+          f"posted by a {(employer or '').replace('_', ' ')}")
 
     employment = f.get("employment_type")
-    if employment not in (None, "unknown") and employment not in vetos["accepted_employment_types"]:
-        reasons.append(f"{employment.replace('_', ' ')} role")
+    check("employment_type",
+          employment not in (None, "unknown") and employment not in vetos["accepted_employment_types"],
+          f"{(employment or '').replace('_', ' ')} role")
 
     years = f.get("min_years_required")
-    if isinstance(years, (int, float)) and years > vetos["max_required_years_experience"]:
-        reasons.append(f"requires {years:g}+ years of experience")
+    check("min_years_required",
+          isinstance(years, (int, float)) and years > vetos["max_required_years_experience"],
+          f"requires {years}+ years of experience")
 
     degree = f.get("degree_required")
-    if degree in DEGREE_RANK and DEGREE_RANK[degree] > DEGREE_RANK.get(facts["highest_degree"], 1):
-        reasons.append(f"requires a {degree} degree")
+    check("degree_required",
+          degree in DEGREE_RANK and DEGREE_RANK[degree] > DEGREE_RANK.get(facts["highest_degree"], 1),
+          f"requires a {degree} degree")
 
-    if f.get("relocation_required") and not facts["can_relocate"]:
-        where = f" to {f['work_location']}" if f.get("work_location") else ""
-        reasons.append(f"requires relocation{where}")
+    # Moving to Massachusetts is not relocation for someone who already lives there.
+    check("relocation_required",
+          f.get("relocation_required") and not facts["can_relocate"] and in_ma is not True,
+          f"requires relocation to {where}")
 
     mode = f.get("work_mode")
-    if mode in ("onsite", "hybrid") and f.get("work_location_in_massachusetts") is False:
-        reasons.append(f"{mode} outside Massachusetts ({f.get('work_location') or 'location unstated'})")
-    if mode == "remote" and f.get("remote_residency_allows_massachusetts") is False:
-        reasons.append(f"remote but restricted to {f.get('remote_residency_restriction') or 'another region'}")
+    check("work_location", mode in ("onsite", "hybrid") and in_ma is False,
+          f"{mode} outside Massachusetts ({where})")
+    check("remote_residency_restriction",
+          mode == "remote" and f.get("remote_residency_allows_massachusetts") is False,
+          f"remote but restricted to {f.get('remote_residency_restriction') or 'another region'}")
 
-    if f.get("requires_security_clearance") and not facts["has_security_clearance"]:
-        reasons.append("requires a security clearance")
+    # Only an ALREADY-HELD clearance disqualifies. Eligibility-to-obtain is normal for entry-level
+    # government-contractor roles and is left for the candidate to judge.
+    check("requires_active_clearance",
+          f.get("requires_active_clearance") and not facts["has_security_clearance"],
+          "requires an active security clearance")
 
     missing = [lang for lang in (f.get("required_languages") or []) if lang.lower() not in spoken]
-    if missing:
-        reasons.append("requires " + ", ".join(missing))
+    check("required_languages", bool(missing), "requires " + ", ".join(missing))
 
-    start, end = f.get("graduation_window_start"), f.get("graduation_window_end")
-    start = start if isinstance(start, str) and DATE.match(start) else None
-    end = end if isinstance(end, str) and DATE.match(end) else None
-    if (start and grad < start) or (end and grad > end):
-        reasons.append(f"targets graduates {start or '?'} to {end or '?'}")
+    ws, we = f.get("graduation_window_start"), f.get("graduation_window_end")
+    ws = ws if isinstance(ws, str) and DATE.match(ws) else None
+    we = we if isinstance(we, str) and DATE.match(we) else None
+    check("graduation_window", bool((ws and grad < ws) or (we and grad > we)),
+          f"targets graduates {ws or '?'} to {we or '?'}")
 
-    start_date = f.get("start_date")
-    if start_date == "immediate" or (isinstance(start_date, str) and DATE.match(start_date) and start_date < grad):
-        reasons.append(f"start date {start_date} is before graduation")
+    sd = f.get("start_date")
+    check("start_date",
+          sd == "immediate" or (isinstance(sd, str) and bool(DATE.match(sd)) and sd < grad),
+          f"start date {sd} is before graduation")
 
-    return reasons
+    return reasons, unverified
 
 
 # ------------------------------------------------------------------------------------------
@@ -342,6 +391,8 @@ def main():
     selected posting in full and enforces all eligibility rules, so do not filter on anything --
     seniority, location, or company type. YOUR ONLY JOB IS RANKING by how well the title fits
     the candidate's field, preferring titles that signal early-career or new-graduate hiring.
+    The candidate wants FULL-TIME roles: rank internships, co-ops, and roles aimed at current
+    Master's, MBA, or PhD students below full-time positions for bachelor's graduates.
 
     Return EXACTLY {DEEP_SCRAPE_BUDGET} ids. A later stage checks each one properly, so a weak
     pick costs little and an omitted good job is lost entirely.
@@ -396,7 +447,10 @@ def main():
             retry_ids.add(job.get("id"))
             continue
         job["requirements"] = fields
-        reasons = apply_rules(fields, facts, vetos)
+        reasons, unverified = apply_rules(fields, facts, vetos, description)
+        if unverified:
+            print(f"   ? [{job.get('id')}] {(job.get('title') or '?')[:45]} -- unverified, NOT applied: "
+                  f"{'; '.join(unverified)}")
         if reasons:
             filtered.append((job, reasons))
         else:
