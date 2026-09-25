@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import tomllib
+import hashlib
 from google import genai
 from google.genai import types
 from resume_parser import extract_resume_text
@@ -319,6 +320,14 @@ def main():
     config, facts, vetos, report = load_config()
     threshold = vetos["min_match_score_threshold"]
 
+    # Fingerprint of the rules: this file's code plus the candidate facts and vetos. When any
+    # of it changes, rejections made under the old version are released automatically.
+    with open(os.path.abspath(__file__), "rb") as f:
+        code = f.read()
+    rules_version = hashlib.sha1(
+        code + json.dumps([facts, vetos], sort_keys=True).encode()).hexdigest()[:10]
+    print(f"Rules version: {rules_version}")
+
     # --- PHASE 1 and 2: Brainstorm & Surface Scrape ---
     run_script("brainstormer.py")
 
@@ -349,7 +358,7 @@ def main():
             # A shared placeholder signature would collapse every job into one bucket.
             signature = job["url"]
             collapsed += 1
-        if not is_job_seen(job["url"]) and signature not in seen_signatures:
+        if not is_job_seen(job["url"], rules_version) and signature not in seen_signatures:
             fresh_jobs.append(job)
             seen_signatures.add(signature)
 
@@ -631,7 +640,7 @@ def main():
         if job.get("id") in approved_ids:
             mark_job_packaged(url)
         else:
-            mark_job_rejected(url)
+            mark_job_rejected(url, rules_version)
     print(f"Grader outcome: {len(approved)} approved, {len(near_misses)} near-miss, "
           f"{max(below, 0)} below {report['near_miss_floor']}, {len(filtered)} filtered by rules.")
 

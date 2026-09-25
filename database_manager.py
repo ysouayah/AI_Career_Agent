@@ -60,6 +60,13 @@ def init_db():
         )
     """)
 
+    # Rejections record which version of the rules made them. Existing databases gain the
+    # column with NULL values, which never match a real fingerprint -- so the first run on
+    # this code releases every rejection made under older rules.
+    cur.execute("PRAGMA table_info(job_memory)")
+    if "rules_version" not in [row[1] for row in cur.fetchall()]:
+        cur.execute("ALTER TABLE job_memory ADD COLUMN rules_version TEXT")
+
     # One-time migration from the old permanent-blacklist table.
     cur.execute("SELECT COUNT(*) FROM job_memory")
     if cur.fetchone()[0] == 0:
@@ -78,55 +85,61 @@ def init_db():
     conn.close()
 
 
-def is_job_seen(url):
+def is_job_seen(url, rules_version=None):
     """
     True only when the job should be SKIPPED this run.
 
-    Packaged jobs are skipped forever. Rejected jobs are skipped until the
-    cooldown expires. Anything merely 'seen' is fair game again, because it
-    was never actually evaluated.
+    Packaged jobs are skipped forever. Rejected jobs are skipped until the cooldown expires --
+    OR immediately released if the rules have changed since they were rejected, because a
+    judgement made under old rules shouldn't bury a job for weeks. Anything merely 'seen'
+    was never evaluated and is fair game.
     """
     conn = _connect()
     cur = conn.cursor()
-    cur.execute("SELECT status, last_evaluated FROM job_memory WHERE url = ?", (url,))
+    cur.execute("SELECT status, last_evaluated, rules_version FROM job_memory WHERE url = ?", (url,))
     row = cur.fetchone()
     conn.close()
 
     if not row:
         return False
 
-    status, last_evaluated = row
+    status, last_evaluated, judged_under = row
 
     if status == "packaged":
         return True
 
-    if status == "rejected" and last_evaluated:
-        try:
-            when = datetime.fromisoformat(last_evaluated)
-        except ValueError:
+    if status == "rejected":
+        if rules_version is not None and judged_under != rules_version:
             return False
-        return datetime.now() - when < timedelta(days=COOLDOWN_DAYS)
+        if last_evaluated:
+            try:
+                when = datetime.fromisoformat(last_evaluated)
+            except ValueError:
+                return False
+            return datetime.now() - when < timedelta(days=COOLDOWN_DAYS)
 
     return False
 
 
-def mark_job_seen(url, status="seen"):
+def mark_job_seen(url, status="seen", rules_version=None):
     """Record that we encountered a URL. Kept for backwards compatibility."""
     conn = _connect()
     cur = conn.cursor()
     now = datetime.now().isoformat()
     cur.execute(
-        "INSERT INTO job_memory (url, status, first_seen, last_evaluated) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(url) DO UPDATE SET status = excluded.status, last_evaluated = excluded.last_evaluated",
-        (url, status, now, now if status != "seen" else None),
+        "INSERT INTO job_memory (url, status, first_seen, last_evaluated, rules_version) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(url) DO UPDATE SET status = excluded.status, "
+        "last_evaluated = excluded.last_evaluated, rules_version = excluded.rules_version",
+        (url, status, now, now if status != "seen" else None, rules_version),
     )
     conn.commit()
     conn.close()
 
 
-def mark_job_rejected(url):
-    """Grader scored it below threshold. Suppress for COOLDOWN_DAYS."""
-    mark_job_seen(url, status="rejected")
+def mark_job_rejected(url, rules_version=None):
+    """Not a match under the current rules. Suppressed for COOLDOWN_DAYS, or until the rules change."""
+    mark_job_seen(url, status="rejected", rules_version=rules_version)
 
 
 def mark_job_packaged(url):
