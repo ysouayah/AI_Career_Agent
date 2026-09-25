@@ -4,7 +4,11 @@
     "graduation": "2027-05",
     "earliest_start": "2027-09",
     "highest_degree": "bachelors",
-    "spoken_languages": ["english", "arabic", "french"],
+    "spoken_languages": [
+      "english",
+      "arabic",
+      "french"
+    ],
     "location": "Boston, MA",
     "can_relocate": false,
     "has_security_clearance": false
@@ -18,17 +22,44 @@
     "pathway_b": {
       "type": "Permanent Full-Time",
       "target_window": "Post-Graduation (June 2027 start)",
-      "cohort_keywords": ["Class of 2027", "2027 New Grad", "University Graduate", "Early Career"]
+      "cohort_keywords": [
+        "Class of 2027",
+        "2027 New Grad",
+        "University Graduate",
+        "Early Career"
+      ]
     }
   },
   "industry_rubric": {
-    "primary_focus": ["Data Science", "Machine Learning", "Data Analytics"],
-    "secondary_interdisciplinary_focus": ["Political Science", "Immigration Policy", "Public Policy Analysis"],
-    "preferred_tech_stack": ["Python", "SQL", "PostgreSQL", "Pandas", "R", "Tableau"]
+    "primary_focus": [
+      "Data Science",
+      "Machine Learning",
+      "Data Analytics"
+    ],
+    "secondary_interdisciplinary_focus": [
+      "Political Science",
+      "Immigration Policy",
+      "Public Policy Analysis"
+    ],
+    "preferred_tech_stack": [
+      "Python",
+      "SQL",
+      "PostgreSQL",
+      "Pandas",
+      "R",
+      "Tableau"
+    ]
   },
   "hard_vetos": {
-    "accepted_employment_types": ["full_time"],
+    "accepted_employment_types": [
+      "full_time"
+    ],
     "max_required_years_experience": 0,
     "min_match_score_threshold": 85
+  },
+  "report": {
+    "show_filtered_jobs": true,
+    "show_near_misses": true,
+    "near_miss_floor": 70
   }
 }

@@ -12,7 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 import shutil
 from datetime import datetime
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 # ==========================================
 # 1. TEXT FORMATTING UTILS
@@ -307,30 +307,20 @@ def build_application_packages():
         print("ERROR: master_resume.md not found.")
         return
 
+    # run_everything.py writes approved_jobs.json -- the exact jobs that cleared the grader.
+    # Reading that list, rather than scanning the report for URLs, keeps near-miss links in
+    # the email from triggering package generation.
     try:
-        with open("deep_jobs.json", "r") as f: passed_jobs = json.load(f)
-    except FileNotFoundError: return
-
-    if not passed_jobs: return
-
-    # --- NEW SYNC LOGIC ---
-    # Read the final email text to see which jobs actually survived the 85+ score cutoff
-    try:
-        with open("FINAL_STRATEGY.md", "r", encoding="utf-8") as f:
-            approved_text = f.read()
+        with open("approved_jobs.json", "r") as f:
+            final_jobs = json.load(f)
     except FileNotFoundError:
-        approved_text = ""
-
-    # Filter passed_jobs down to ONLY the ones whose URL appears in the final report
-    final_jobs = []
-    for job in passed_jobs:
-        if url_matches(job.get("url", ""), approved_text):
-            final_jobs.append(job)
+        print("   [-] approved_jobs.json not found. Skipping package generation.")
+        return
 
     passed_jobs = final_jobs
     
     if not passed_jobs:
-        print("   [-] No jobs scored 85+. Skipping package generation.")
+        print("   [-] No jobs cleared the grader. Skipping package generation.")
         return
     # ----------------------
 

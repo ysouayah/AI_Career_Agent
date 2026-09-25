@@ -17,6 +17,9 @@ if os.path.exists(secrets_path):
         for key, value in secrets.items():
             os.environ[key] = str(value)
 
+# Piped output is block-buffered, which made rejection lines print after the fulfiller's output.
+sys.stdout.reconfigure(line_buffering=True)
+
 MODEL = "gemini-2.5-flash"
 SIFTER_CAP = 80           # most relevant titles the Sifter is allowed to see
 DEEP_SCRAPE_BUDGET = 40   # jobs selected for full-description scraping
@@ -76,7 +79,11 @@ def load_config():
     vetos.setdefault("accepted_employment_types", ["full_time"])
     vetos.setdefault("max_required_years_experience", 0)
     vetos.setdefault("min_match_score_threshold", 85)
-    return config, facts, vetos
+    report = config.get("report", {})
+    report.setdefault("show_filtered_jobs", True)
+    report.setdefault("show_near_misses", True)
+    report.setdefault("near_miss_floor", 70)
+    return config, facts, vetos, report
 
 
 # ------------------------------------------------------------------------------------------
@@ -111,8 +118,10 @@ def location_ok(job):
 
 ROLE_TERMS = ("data scien", "data analy", "machine learning", "analytics", "research analyst",
               "policy", "quantitative", "decision scien", "consult", "ai ", "ml ", "business analyst")
+# "associate" is deliberately absent: at firms like ZS, Oliver Wyman, and A&M it is often a
+# post-experience level, and ranking it up filled the Sifter with experienced roles.
 EARLY_TERMS = ("new grad", "entry", "junior", "early career", "2027", "university", "graduate",
-               "associate", "rotational", "analyst i", "level 1")
+               "rotational", "analyst i", "level 1")
 
 
 def relevance(job):
@@ -132,6 +141,12 @@ The posting is for: {title} at {company}.
 
 The page text may also contain unrelated sections -- "Similar jobs", "People also viewed", or
 other listings. Ignore them. Extract ONLY from the posting for the role named above.
+
+LinkedIn's criteria box ("Employment type", "Seniority level", "Job function") is filled in
+by the poster and is often wrong. When it conflicts with the title or description, the title
+and description win -- e.g. a role titled "(2027 Bachelor's/Master's graduates) Analyst" is
+full-time graduate hiring even if the box says "Internship". Use the box only when the
+description says nothing either way.
 Report only what the posting states. Do not infer, guess, or evaluate any candidate.
 
 Return ONE JSON object with exactly these keys:
@@ -168,7 +183,8 @@ Return ONE JSON object with exactly these keys:
 "start_date": "immediate" | "YYYY-MM" | null
     Use "YYYY-MM" ONLY when a specific month or season is stated (Summer -> 06, Fall -> 09,
     Winter -> 01). If only a year is given, return null. "immediate" only if the posting
-    explicitly says immediate or ASAP.
+    explicitly says the HIRE STARTS immediately or ASAP. Rolling applications, "considered as
+    they apply", or "until filled" describe the APPLICATION process, not the start date.
 "evidence": object
     For EVERY value that could disqualify a new graduate, add a key holding a SHORT VERBATIM
     QUOTE (under 25 words) copied exactly from the posting. Use these keys:
@@ -300,7 +316,7 @@ def main():
         print("ERROR: GEMINI_API_KEY environment variable not found.")
         return
 
-    config, facts, vetos = load_config()
+    config, facts, vetos, report = load_config()
     threshold = vetos["min_match_score_threshold"]
 
     # --- PHASE 1 and 2: Brainstorm & Surface Scrape ---
@@ -460,10 +476,10 @@ def main():
     for job, reasons in filtered:
         print(f"   x [{job.get('id')}] {job.get('company', '?')} | {(job.get('title') or '?')[:50]} -- {'; '.join(reasons)}")
 
-    # --- PHASE 7: The Grader (fit only) ---
+    # --- PHASE 7: The Grader -- the model scores, Python applies the threshold ---
     print("\n--- PHASE 7: THE GRADER (SCORING FIT) ---")
-    report_text = "No high-scoring matches found in this batch."
-    passed_ids = set()
+    approved, near_misses, scores = [], [], {}
+    writeups = ""
 
     if eligible:
         candidate_context = "--- MASTER RESUME ---\n"
@@ -482,23 +498,25 @@ def main():
             f"Interdisciplinary: {', '.join(rubric.get('secondary_interdisciplinary_focus', []))}\n"
             f"Preferred stack: {', '.join(rubric.get('preferred_tech_stack', []))}\n")
 
-        # The grader never sees a URL, so it cannot pair a title with the wrong link.
+        # The model never sees a URL, so it cannot pair a title with the wrong link.
         grader_jobs = [{"id": j["id"], "title": j.get("title"), "company": j.get("company"),
                         "location": j.get("location"), "requirements": j.get("requirements"),
                         "description": j.get("full_description")} for j in eligible]
 
-        grade_prompt = f"""
+        # Step 1: a score and a one-line reason for EVERY eligible job.
+        score_prompt = f"""
     You are an elite career strategist scoring job fit for one candidate.
 
     Every job below has ALREADY passed hard eligibility checks performed on its full
     description: experience level, degree, employment type, location and relocation,
     residency, security clearance, languages, graduation window, and start date. Do not
-    re-litigate those. Score FIT: how well the candidate's actual skills, coursework, and
-    experience match what the role does day to day, and how competitive they would
-    realistically be against other applicants.
+    re-litigate those. Score FIT from 0 to 100: how well the candidate's actual skills,
+    coursework, and experience match what the role does day to day, and how competitive they
+    would realistically be. Weigh the candidate's policy and political-science background as
+    seriously as the technical one.
 
-    Backstop only: if you see an unmistakable hard disqualifier the checks missed -- for
-    example an explicit requirement of prior full-time experience -- score that job 0.
+    Backstop only: if you see an unmistakable hard disqualifier the checks missed -- for example
+    an explicit requirement of prior full-time experience -- score that job 0.
 
     CANDIDATE:
     {candidate_context}
@@ -506,11 +524,51 @@ def main():
     JOBS (JSON; each has an integer "id"):
     {json.dumps(grader_jobs, indent=2)}
 
-    Score every job from 0 to 100. Silently omit any job scoring below {threshold}.
-    Sort the survivors from highest to lowest score.
+    Return ONLY a JSON array with one object per job:
+    [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor"}}]
+    """
+        try:
+            rows = json.loads(strip_fences(call_model(client, score_prompt, json_mode=True, temperature=0.2)))
+            for row in rows:
+                if isinstance(row, dict) and isinstance(row.get("id"), int):
+                    scores[row["id"]] = (int(row.get("score", 0)), str(row.get("reason", "")).strip())
+        except Exception as e:
+            print(f"Error parsing grader scores: {e}")
 
-    Format each survivor EXACTLY like this template. The title MUST be a Markdown link whose
-    target is the token JOB_URL_<id>, using the job's integer id. Never write a URL yourself.
+        by_id = {j["id"]: j for j in eligible}
+        for jid, (score, reason) in sorted(scores.items(), key=lambda kv: -kv[1][0]):
+            if jid not in by_id:
+                continue
+            if score >= threshold:
+                approved.append(by_id[jid])
+            elif score >= report["near_miss_floor"]:
+                near_misses.append((by_id[jid], score, reason))
+        unscored = [j for j in eligible if j["id"] not in scores]
+        if unscored:
+            print(f"Warning: grader returned no score for {len(unscored)} job(s): "
+                  f"{[j['id'] for j in unscored]}")
+
+        for j in eligible:
+            if j["id"] in scores:
+                sc, why = scores[j["id"]]
+                print(f"   {sc:>3} [{j['id']}] {(j.get('company') or '?')[:22]} | {(j.get('title') or '?')[:45]} -- {why[:90]}")
+
+        # Step 2: full write-ups, only for jobs Python approved, using Python's scores.
+        if approved:
+            writeup_jobs = [dict(g, score=scores[g["id"]][0]) for g in grader_jobs
+                            if g["id"] in {a["id"] for a in approved}]
+            writeup_prompt = f"""
+    Write the report entries for these jobs. They have already been scored; use each job's
+    "score" field EXACTLY as given and do not re-score. Keep them in the order given.
+
+    CANDIDATE:
+    {candidate_context}
+
+    JOBS (JSON; each has an integer "id" and a "score"):
+    {json.dumps(sorted(writeup_jobs, key=lambda g: -g["score"]), indent=2)}
+
+    Format each job EXACTLY like this template. The title MUST be a Markdown link whose target
+    is the token JOB_URL_<id>, using the job's integer id. Never write a URL yourself.
     Correct:   ### [Junior Data Analyst](JOB_URL_42)
     Wrong:     ### Junior Data Analyst (JOB_URL_42)
 
@@ -531,47 +589,51 @@ def main():
     * [one sentence]
 
     ---
-
-    If NO job scores {threshold} or higher, output exactly:
-    "No high-scoring matches found in this batch."
     """
-        report_text = call_model(client, grade_prompt, temperature=0.3).strip()
-
-        for job in eligible:
-            token = f"JOB_URL_{job['id']}"
-            if token in report_text:
-                report_text = report_text.replace(token, job.get("url", ""))
-                passed_ids.add(job["id"])
-        leftover = re.findall(r"JOB_URL_\d+", report_text)
-        if leftover:
-            print(f"Warning: {len(leftover)} unresolved link token(s) in report: {set(leftover)}")
+            writeups = call_model(client, writeup_prompt, temperature=0.3).strip()
+            for job in approved:
+                writeups = writeups.replace(f"JOB_URL_{job['id']}", job.get("url", ""))
+            leftover = re.findall(r"JOB_URL_\d+", writeups)
+            if leftover:
+                print(f"Warning: {len(leftover)} unresolved link token(s) in report: {set(leftover)}")
     else:
         print("No jobs survived the rules; skipping the grader.")
 
+    # The explicit hand-off to the fulfiller. It reads this list rather than scanning the
+    # report for URLs, so near-miss links in the email never trigger package generation.
+    with open("approved_jobs.json", "w") as f:
+        json.dump(approved, f, indent=4)
+
     # --- Report ---
-    below_threshold = len(eligible) - len(passed_ids)
-    sections = ["# 🎯 Weekly AI Job Strategy: High-Probability Matches\n", report_text]
-    if filtered:
+    sections = ["# 🎯 Weekly AI Job Strategy: High-Probability Matches\n",
+                writeups or "No high-scoring matches found in this batch."]
+    if report["show_near_misses"] and near_misses:
+        lines = [f"- **[{j.get('title', '?')}]({j.get('url', '')})** — {j.get('company', '?')}: "
+                 f"{sc}/100. {why}" for j, sc, why in near_misses]
+        sections.append(f"\n---\n\n## Worth a look ({report['near_miss_floor']}–{threshold - 1})\n\n"
+                        + "\n".join(lines))
+    below = len(eligible) - len(approved) - len(near_misses)
+    if below > 0:
+        sections.append(f"\n_{below} other eligible job(s) scored below {report['near_miss_floor']}._")
+    if report["show_filtered_jobs"] and filtered:
         lines = [f"- **{j.get('title', '?')}** — {j.get('company', '?')}: {'; '.join(r)}"
                  for j, r in filtered]
         sections.append("\n---\n\n## Filtered out by hard rules\n\n" + "\n".join(lines))
-    if below_threshold:
-        sections.append(f"\n_{below_threshold} other job(s) met every rule but scored below "
-                        f"{threshold} on fit._")
     with open("FINAL_STRATEGY.md", "w") as f:
         f.write("\n".join(sections))
 
-    # Record outcomes: reported jobs are packaged; everything else goes on the cooldown timer.
+    # Record outcomes: approved jobs are packaged; everything else goes on the cooldown timer.
+    approved_ids = {j["id"] for j in approved}
     for job in scraped:
         url = job.get("url")
         if not url or job.get("id") in retry_ids:
             continue
-        if job.get("id") in passed_ids:
+        if job.get("id") in approved_ids:
             mark_job_packaged(url)
         else:
             mark_job_rejected(url)
-    print(f"Grader outcome: {len(passed_ids)} passed, {below_threshold} below threshold, "
-          f"{len(filtered)} filtered by rules.")
+    print(f"Grader outcome: {len(approved)} approved, {len(near_misses)} near-miss, "
+          f"{max(below, 0)} below {report['near_miss_floor']}, {len(filtered)} filtered by rules.")
 
     # --- PHASE 8: Auto-fulfillment ---
     # Always runs: it also clears last week's packages, so skipping it could attach stale PDFs.
