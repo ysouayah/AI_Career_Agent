@@ -6,6 +6,8 @@ import sys
 import time
 import tomllib
 import hashlib
+import csv
+from datetime import datetime
 from google import genai
 from google.genai import types
 from resume_parser import extract_resume_text
@@ -80,6 +82,7 @@ def load_config():
     vetos.setdefault("accepted_employment_types", ["full_time"])
     vetos.setdefault("max_required_years_experience", 0)
     vetos.setdefault("min_match_score_threshold", 85)
+    vetos.setdefault("filter_immediate_hires", True)
     report = config.get("report", {})
     report.setdefault("show_filtered_jobs", True)
     report.setdefault("show_near_misses", True)
@@ -125,12 +128,25 @@ EARLY_TERMS = ("new grad", "entry", "junior", "early career", "2027", "universit
                "rotational", "analyst i", "level 1")
 
 
+# Senior-level titles sort below everything else. Ranking, not filtering: they still reach the
+# Sifter when a week is thin. Word boundaries keep "Staffing Analyst" and "Sriram" out of it.
+SENIOR = re.compile(r"\b(senior|sr|staff|principal)\b", re.I)
+SENIOR_PENALTY = 100
+
+
+def is_senior_title(title):
+    return bool(SENIOR.search(title or ""))
+
+
 def relevance(job):
     """Ordering only -- nothing is excluded here. Early-career words count only on titles
     already in the right field, or "Warehouse Associate" would outrank "Research Analyst"."""
     t = " " + (job.get("title") or "").lower() + " "
     role = sum(k in t for k in ROLE_TERMS)
-    return role + (2 * sum(k in t for k in EARLY_TERMS) if role else 0)
+    score = role + (2 * sum(k in t for k in EARLY_TERMS) if role else 0)
+    if is_senior_title(t):
+        score -= SENIOR_PENALTY
+    return score
 
 
 # ------------------------------------------------------------------------------------------
@@ -186,12 +202,22 @@ Return ONE JSON object with exactly these keys:
     Winter -> 01). If only a year is given, return null. "immediate" only if the posting
     explicitly says the HIRE STARTS immediately or ASAP. Rolling applications, "considered as
     they apply", or "until filled" describe the APPLICATION process, not the start date.
+"hiring_track": "campus_cohort" | "immediate_hire" | "unclear"
+    campus_cohort = hiring a graduating class or program that starts together later: the
+    posting names a class year or graduation term ("Class of 2027", "graduating between Dec
+    2026 and Jun 2027"), a named analyst/associate/rotational/development program, a fixed
+    program start date, or university/campus recruiting.
+    immediate_hire = filling a current opening now: the posting says the hire starts
+    immediately, ASAP, or within weeks, or describes backfilling a current seat -- AND names
+    no class year, program, or future cohort start.
+    unclear = the posting states neither. When in doubt, use unclear.
 "evidence": object
     For EVERY value that could disqualify a new graduate, add a key holding a SHORT VERBATIM
     QUOTE (under 25 words) copied exactly from the posting. Use these keys:
       employer_type, employment_type, min_years_required, degree_required,
       relocation_required, work_location, remote_residency_restriction,
-      requires_active_clearance, required_languages, graduation_window, start_date
+      requires_active_clearance, required_languages, graduation_window, start_date,
+      hiring_track
     If you cannot quote text from the posting that supports a value, do not assert it.
 
 POSTING:
@@ -219,6 +245,19 @@ def quote_found(quote, text):
     """A disqualifying claim only counts if its supporting quote really appears in the posting."""
     q = _norm(quote)
     return len(q) >= 8 and q in _norm(text)
+
+
+TITLE_TECH_CAP = 79
+
+
+def title_tech_missing(tech, title, candidate_text):
+    """The grader names a technology from the title that the candidate lacks; Python checks both
+    halves before capping -- it must really be in the title and really be absent from the
+    candidate's materials. Whole-word match, so "R" doesn't hit every word containing an r."""
+    if not isinstance(tech, str) or not _norm(tech):
+        return False
+    t = f" {_norm(tech)} "
+    return t in f" {_norm(title)} " and t not in f" {_norm(candidate_text)} "
 
 
 def apply_rules(f, facts, vetos, text):
@@ -292,7 +331,22 @@ def apply_rules(f, facts, vetos, text):
           sd == "immediate" or (isinstance(sd, str) and bool(DATE.match(sd)) and sd < grad),
           f"start date {sd} is before graduation")
 
+    # A seat being filled now will be gone long before a Spring graduate can start. Like every
+    # other rule, it only fires on a verified quote; "unclear" postings go through.
+    check("hiring_track",
+          vetos["filter_immediate_hires"] and f.get("hiring_track") == "immediate_hire",
+          "immediate hire, not a new-grad cohort")
+
     return reasons, unverified
+
+
+TRACK_LABELS = {"campus_cohort": "🎓 Campus cohort", "immediate_hire": "⚡ Immediate hire",
+                "unclear": "❔ Unclear"}
+
+
+def track_label(job):
+    track = (job.get("requirements") or {}).get("hiring_track")
+    return TRACK_LABELS.get(track, TRACK_LABELS["unclear"])
 
 
 # ------------------------------------------------------------------------------------------
@@ -306,6 +360,22 @@ def send_report():
             send_strategy_report(os.environ.get("EMAIL_USER"))
         except ImportError:
             print("Notice: notifier.py not found. Skipping email dispatch.")
+
+
+# One row per job the pipeline evaluated, appended every run. This is the raw material for the
+# evaluation tracker (update_tracker.py): the agent's decision next to your own verdict.
+RUN_LOG = "agent_log.csv"
+RUN_LOG_FIELDS = ["run_date", "company", "title", "location", "decision", "score", "reason",
+                  "hiring_track", "rules_version", "url"]
+
+
+def append_run_log(rows):
+    new_file = not os.path.exists(RUN_LOG)
+    with open(RUN_LOG, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=RUN_LOG_FIELDS)
+        if new_file:
+            writer.writeheader()
+        writer.writerows(rows)
 
 
 def main():
@@ -418,6 +488,8 @@ def main():
     the candidate's field, preferring titles that signal early-career or new-graduate hiring.
     The candidate wants FULL-TIME roles: rank internships, co-ops, and roles aimed at current
     Master's, MBA, or PhD students below full-time positions for bachelor's graduates.
+    Rank any title containing Senior, Sr., Staff, or Principal LAST -- below every other
+    title, including weaker-fit ones. Include them only if you need them to reach the count.
 
     Return EXACTLY {DEEP_SCRAPE_BUDGET} ids. A later stage checks each one properly, so a weak
     pick costs little and an omitted good job is lost entirely.
@@ -524,6 +596,19 @@ def main():
     would realistically be. Weigh the candidate's policy and political-science background as
     seriously as the technical one.
 
+    CALIBRATION -- these numbers mean specific things. Use them as anchors:
+      90-100  COMPETITIVE. The candidate's record covers the core of what this role does day
+              to day, and a hiring team would plausibly put them in the interview pool against
+              other strong new-grad applicants. A good-but-ordinary fit is not a 90.
+      85-89   Strong fit with one real gap the candidate can credibly address.
+      70-84   Plausible stretch: adjacent skills, or a core requirement only partly evidenced.
+      0-69    Weak fit.
+    TITLE TECHNOLOGY: if the job title names a specific tool, platform, or language (e.g.
+    "Salesforce Analyst", "Snowflake Data Engineer", "SAP Business Analyst", "Power BI
+    Developer") and the candidate's materials do not show it, the score MUST stay in the 70s
+    at most, however well everything else fits. Name that technology in "missing_title_tech"
+    exactly as it appears in the title; otherwise use null.
+
     Backstop only: if you see an unmistakable hard disqualifier the checks missed -- for example
     an explicit requirement of prior full-time experience -- score that job 0.
 
@@ -534,17 +619,24 @@ def main():
     {json.dumps(grader_jobs, indent=2)}
 
     Return ONLY a JSON array with one object per job:
-    [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor"}}]
+    [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor",
+      "missing_title_tech": null}}]
     """
+        by_id = {j["id"]: j for j in eligible}
         try:
             rows = json.loads(strip_fences(call_model(client, score_prompt, json_mode=True, temperature=0.2)))
             for row in rows:
                 if isinstance(row, dict) and isinstance(row.get("id"), int):
-                    scores[row["id"]] = (int(row.get("score", 0)), str(row.get("reason", "")).strip())
+                    score, reason = int(row.get("score", 0)), str(row.get("reason", "")).strip()
+                    tech = row.get("missing_title_tech")
+                    title = (by_id.get(row["id"]) or {}).get("title") or ""
+                    if score > TITLE_TECH_CAP and title_tech_missing(tech, title, candidate_context):
+                        reason = f"[capped from {score}: title names {tech.strip()}, not on resume] {reason}"
+                        score = TITLE_TECH_CAP
+                    scores[row["id"]] = (score, reason)
         except Exception as e:
             print(f"Error parsing grader scores: {e}")
 
-        by_id = {j["id"]: j for j in eligible}
         for jid, (score, reason) in sorted(scores.items(), key=lambda kv: -kv[1][0]):
             if jid not in by_id:
                 continue
@@ -564,8 +656,8 @@ def main():
 
         # Step 2: full write-ups, only for jobs Python approved, using Python's scores.
         if approved:
-            writeup_jobs = [dict(g, score=scores[g["id"]][0]) for g in grader_jobs
-                            if g["id"] in {a["id"] for a in approved}]
+            writeup_jobs = [dict(g, score=scores[g["id"]][0], hiring_track=track_label(by_id[g["id"]]))
+                            for g in grader_jobs if g["id"] in {a["id"] for a in approved}]
             writeup_prompt = f"""
     Write the report entries for these jobs. They have already been scored; use each job's
     "score" field EXACTLY as given and do not re-score. Keep them in the order given.
@@ -586,6 +678,7 @@ def main():
     * **Company:** 🏢 COMPANY
     * **Match Score:** 🎯 SCORE/100
     * **Category:** 📂 CATEGORY
+    * **Hiring Track:** [the job's "hiring_track" value, copied verbatim]
     * **Deadline/Timeline:** ⏳ [explicit deadline, or "Rolling / ASAP. Apply immediately."]
 
     **🟢 PROS (Alignment):**
@@ -613,14 +706,25 @@ def main():
     with open("approved_jobs.json", "w") as f:
         json.dump(approved, f, indent=4)
 
+    # Near misses are saved with a label (N1, N2, ...) so a package can be generated on request:
+    #   python auto_fulfiller.py --near-miss N2 N5
+    # Always rewritten, so a label can never point at last week's job.
+    near_miss_records = [dict(j, near_miss_label=f"N{k}", score=sc, reason=why)
+                         for k, (j, sc, why) in enumerate(near_misses, start=1)]
+    with open("near_miss_jobs.json", "w") as f:
+        json.dump(near_miss_records, f, indent=4)
+
     # --- Report ---
     sections = ["# 🎯 Weekly AI Job Strategy: High-Probability Matches\n",
                 writeups or "No high-scoring matches found in this batch."]
     if report["show_near_misses"] and near_misses:
-        lines = [f"- **[{j.get('title', '?')}]({j.get('url', '')})** — {j.get('company', '?')}: "
-                 f"{sc}/100. {why}" for j, sc, why in near_misses]
+        lines = [f"- `{r['near_miss_label']}` **[{r.get('title', '?')}]({r.get('url', '')})** — "
+                 f"{r.get('company', '?')} · {track_label(r)}: {r['score']}/100. {r['reason']}"
+                 for r in near_miss_records]
         sections.append(f"\n---\n\n## Worth a look ({report['near_miss_floor']}–{threshold - 1})\n\n"
-                        + "\n".join(lines))
+                        + "\n".join(lines)
+                        + "\n\n_Want a package for one of these? Run "
+                          "`python auto_fulfiller.py --near-miss N1 N3` (or `all`)._")
     below = len(eligible) - len(approved) - len(near_misses)
     if below > 0:
         sections.append(f"\n_{below} other eligible job(s) scored below {report['near_miss_floor']}._")
@@ -641,6 +745,31 @@ def main():
             mark_job_packaged(url)
         else:
             mark_job_rejected(url, rules_version)
+    # Log every evaluated job with the stage that decided it.
+    run_date = datetime.now().strftime("%Y-%m-%d")
+    near_ids = {j["id"] for j, _, _ in near_misses}
+    filter_reasons = {j.get("id"): r for j, r in filtered}
+    log_rows = []
+    for job in scraped:
+        jid = job.get("id")
+        score, reason = "", ""
+        if jid in filter_reasons:
+            decision = "retry" if jid in retry_ids else "filtered"
+            reason = "; ".join(filter_reasons[jid])
+        elif jid in scores:
+            score, reason = scores[jid]
+            decision = ("approved" if jid in approved_ids else
+                        "near_miss" if jid in near_ids else "below_floor")
+        else:
+            decision = "unscored"
+        log_rows.append({
+            "run_date": run_date, "company": job.get("company") or "", "title": job.get("title") or "",
+            "location": job.get("location") or "", "decision": decision, "score": score,
+            "reason": reason, "hiring_track": (job.get("requirements") or {}).get("hiring_track") or "",
+            "rules_version": rules_version, "url": job.get("url") or "",
+        })
+    append_run_log(log_rows)
+
     print(f"Grader outcome: {len(approved)} approved, {len(near_misses)} near-miss, "
           f"{max(below, 0)} below {report['near_miss_floor']}, {len(filtered)} filtered by rules.")
 

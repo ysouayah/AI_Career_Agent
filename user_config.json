@@ -21,7 +21,7 @@
     },
     "pathway_b": {
       "type": "Permanent Full-Time",
-      "target_window": "Post-Graduation (June 2027 start)",
+      "target_window": "Post-Graduation (September 2027 start)",
       "cohort_keywords": [
         "Class of 2027",
         "2027 New Grad",
@@ -55,7 +55,8 @@
       "full_time"
     ],
     "max_required_years_experience": 0,
-    "min_match_score_threshold": 85
+    "min_match_score_threshold": 85,
+    "filter_immediate_hires": true
   },
   "report": {
     "show_filtered_jobs": true,

@@ -27,7 +27,7 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 - **Interpretivist Analysis:** Utilized interpretivist ethnography (Wedeen, 2010) to code non-verbal behavioral cues, vocal shifts, and evasions, evaluating how local actors construct place-based resentment (Cramer, 2016), nativist boundaries (Pirro, 2023), and historical narratives (Roman National, colonial, and Confederate memory).
 - **IRB & Compliance:** Adhered strictly to IRB Protocol 8264X guidelines for human subject research, preserving participant anonymity and securing sensitive qualitative data in encrypted institutional repositories.
 
-### WildyNess — Growth & Automation Intern | June – August 2026 (Remote)
+### WildyNess — Growth & Automation Intern (Remote) | Summer 2026
 - Engineered a custom AI discovery agent to automate B2B partner acquisition, building multi-threaded web scraping pipelines (via Apify and ZenRows) to identify, qualify, and classify North American and European tour operators as prospective partners for Tunisia-based travel offerings.
 - Built and ran a B2B email outreach campaign on Apollo covering list building, email verification through data enrichment, and paced daily send volumes to protect sender reputation; the campaign generated replies and partnership conversations with target operators.
 - Architected an automated lead enrichment workflow integrated with Apollo to profile high-converting contact segments and dynamically generate look-alike partner lists, dramatically increasing outbound pipeline efficiency.
@@ -71,14 +71,14 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 
 ## LEADERSHIP & ACTIVITIES
 
+### Phi Alpha Delta Pre-Law Fraternity, Boston University | 2024 – Present
+- *VP of Membership (2026 – Present) · Membership-in-Training (2025 – 2026) · A-Board, CSB Committee (2024 – 2025)*
+- Manage the membership database to support accurate records and compliance with national bylaws.
+
 ### North African Student Organization, Boston University | 2023 – Present
 - *Co-President (2025 – Present) · Secretary (2024 – 2025)*
 - Lead student committees in planning, budgeting, and executing large-scale community events.
 - Coordinate outreach and volunteer responsibilities to keep events organized and on track.
-
-### Phi Alpha Delta Pre-Law Fraternity, Boston University | 2024 – Present
-- *VP of Membership (2026 – Present) · Membership-in-Training (2025 – 2026) · A-Board, CSB Committee (2024 – 2025)*
-- Manage the membership database to support accurate records and compliance with national bylaws.
 
 ### Boston Debate League — Volunteer Judge and Alumnus | 2016 – Present
 - Research, construct, and evaluate complex arguments regarding public policy and ethics.
