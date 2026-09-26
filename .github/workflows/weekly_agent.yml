@@ -39,7 +39,7 @@ jobs:
         EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
       run: python run_everything.py
 
-      - name: Commit Updated Memory Bank
+    - name: Commit Updated Memory Bank
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
