@@ -260,6 +260,120 @@ def title_tech_missing(tech, title, candidate_text):
     return t in f" {_norm(title)} " and t not in f" {_norm(candidate_text)} "
 
 
+# ---- Fix: duplicate postings --------------------------------------------------------------
+# Reposts carry tweaked titles ("ML Engineer, Applied AI — New Grad" vs "ML Engineer, New Grad"),
+# so a title key misses them. The description doesn't change, so compare that instead. Five-word
+# shingles keep two different roles at one company apart: their shared boilerplate (about us,
+# benefits, EEO) isn't enough to reach the threshold.
+DUPLICATE_THRESHOLD = 0.85
+
+
+def _shingles(text, n=5):
+    words = _norm(text).split()
+    return {" ".join(words[i:i + n]) for i in range(max(len(words) - n + 1, 1))}
+
+
+def find_duplicates(jobs):
+    """Returns {duplicate_id: kept_job} for jobs whose descriptions match an earlier job's."""
+    kept, dupes = [], {}
+    for job in jobs:
+        desc = job.get("full_description") or ""
+        if len(desc) < 500:
+            continue
+        sh = _shingles(desc)
+        for other, other_sh in kept:
+            if len(sh & other_sh) / max(len(sh | other_sh), 1) >= DUPLICATE_THRESHOLD:
+                dupes[job.get("id")] = other
+                break
+        else:
+            kept.append((job, sh))
+    return dupes
+
+
+# ---- Fix: closed postings reaching the report --------------------------------------------------
+# The description is scraped hours before the email goes out, and may not include the board's
+# "closed" banner at all. So every job about to be reported is opened again right before sending.
+CLOSED_PHRASES = ("no longer accepting applications", "this job has expired", "job has expired",
+                  "this job is no longer available", "job is no longer available",
+                  "position has been filled", "this job is closed", "job posting has expired")
+
+
+def page_says_closed(text):
+    t = (text or "").lower()
+    return any(p in t for p in CLOSED_PHRASES)
+
+
+def still_open(urls, timeout_ms=20000):
+    """{url: True (open) | False (closed) | None (couldn't tell)}. Anything unreadable counts as
+    open: a login wall or timeout is no evidence the job closed."""
+    results = {u: None for u in urls}
+    if not urls:
+        return results
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("   [!] Playwright not installed; skipping the pre-send link check.")
+        return results
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            for u in urls:
+                try:
+                    page.goto(u, timeout=timeout_ms, wait_until="domcontentloaded")
+                    page.wait_for_timeout(1500)
+                    text = page.inner_text("body")
+                    results[u] = (not page_says_closed(text)) if len(text) > 200 else None
+                except Exception:
+                    results[u] = None
+            browser.close()
+    except Exception as e:
+        print(f"   [!] Link check failed to start: {e}")
+    return results
+
+
+# ---- Fix: unmet required skills ---------------------------------------------------------------
+UNMET_REQ_CAP = 79
+PREFERRED_WORDS = re.compile(
+    r"\b(prefer|preferred|preferably|nice to have|nice-to-have|a plus|bonus|desired|desirable|ideally)\b",
+    re.IGNORECASE)
+
+
+def unmet_requirement(item, posting, candidate_text):
+    """The grader names a required skill the candidate lacks, with the posting's exact words.
+    Python confirms all of it before capping: the quote is really in the posting, it isn't
+    phrased as a preference, and none of the accepted alternatives appears in the candidate's
+    materials. Returns the skills as display text, or None."""
+    if not isinstance(item, dict):
+        return None
+    quote = item.get("quote")
+    skills = [s.strip() for s in (item.get("skills") or []) if isinstance(s, str) and _norm(s)]
+    if not skills or not isinstance(quote, str) or not quote_found(quote, posting):
+        return None
+    if PREFERRED_WORDS.search(quote):
+        return None
+    candidate = f" {_norm(candidate_text)} "
+    if any(f" {_norm(skill)} " in candidate for skill in skills):
+        return None
+    return " / ".join(skills)
+
+
+# ---- Fix: report formatting ---------------------------------------------------------------------
+_LIST_ITEM = re.compile(r"^\s*[*-]\s+\S")
+
+
+def fix_markdown_lists(md):
+    """Markdown only starts a list after a blank line; without one, "**PROS:**" followed by
+    "* item" renders as a single paragraph with literal asterisks -- the bug in every email."""
+    out, prev = [], ""
+    for line in md.split("\n"):
+        if _LIST_ITEM.match(line) and prev.strip() and not _LIST_ITEM.match(prev):
+            out.append("")
+        out.append(line)
+        prev = line
+    return "\n".join(out)
+
+
 def apply_rules(f, facts, vetos, text):
     """Each hard rule is one explicit check on an extracted field, and fires ONLY when the model's
     supporting quote is verified against the posting text. Returns (reasons, unverified)."""
@@ -527,7 +641,13 @@ def main():
     print("\n--- PHASE 6: EXTRACTING REQUIREMENTS & APPLYING RULES ---")
     eligible, filtered = [], []
     retry_ids = set()   # transient failures: left unmarked so the next run tries again
+    duplicate_of = find_duplicates(scraped)
     for job in scraped:
+        if job.get("id") in duplicate_of:
+            kept = duplicate_of[job["id"]]
+            filtered.append((job, [f'duplicate of "{kept.get("title", "?")}" at {kept.get("company", "?")} '
+                                   f'(same description)']))
+            continue
         description = job.get("full_description") or ""
         if "no longer accepting applications" in description.lower():
             filtered.append((job, ["no longer accepting applications"]))
@@ -560,6 +680,7 @@ def main():
     # --- PHASE 7: The Grader -- the model scores, Python applies the threshold ---
     print("\n--- PHASE 7: THE GRADER (SCORING FIT) ---")
     approved, near_misses, scores = [], [], {}
+    closed_ids = set()   # scored, then found closed at the pre-send link check
     writeups = ""
 
     if eligible:
@@ -608,6 +729,13 @@ def main():
     Developer") and the candidate's materials do not show it, the score MUST stay in the 70s
     at most, however well everything else fits. Name that technology in "missing_title_tech"
     exactly as it appears in the title; otherwise use null.
+    REQUIRED SKILLS: for each TECHNICAL skill the posting lists as REQUIRED (a language, tool,
+    platform, framework, or certification -- not a soft skill, and not anything described as
+    preferred, desired, a plus, or a bonus) that the candidate's materials do not show, add an
+    entry to "unmet_requirements": {{"skills": [the skill plus any alternatives the posting accepts],
+    "quote": "the posting's exact words"}}. Example: "proven ability in Golang or JVM languages
+    (Java/Kotlin)" -> {{"skills": ["Golang", "Java", "Kotlin"], "quote": "proven ability in Golang
+    or JVM languages (Java/Kotlin)"}}. A job with any unmet required skill stays in the 70s at most.
 
     Backstop only: if you see an unmistakable hard disqualifier the checks missed -- for example
     an explicit requirement of prior full-time experience -- score that job 0.
@@ -620,7 +748,7 @@ def main():
 
     Return ONLY a JSON array with one object per job:
     [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor",
-      "missing_title_tech": null}}]
+      "missing_title_tech": null, "unmet_requirements": []}}]
     """
         by_id = {j["id"]: j for j in eligible}
         try:
@@ -633,6 +761,12 @@ def main():
                     if score > TITLE_TECH_CAP and title_tech_missing(tech, title, candidate_context):
                         reason = f"[capped from {score}: title names {tech.strip()}, not on resume] {reason}"
                         score = TITLE_TECH_CAP
+                    posting = (by_id.get(row["id"]) or {}).get("full_description") or ""
+                    gaps = [g for g in (unmet_requirement(item, posting, candidate_context)
+                                        for item in (row.get("unmet_requirements") or [])) if g]
+                    if gaps and score > UNMET_REQ_CAP:
+                        reason = f"[capped from {score}: requires {'; '.join(gaps)}, not on resume] {reason}"
+                        score = UNMET_REQ_CAP
                     scores[row["id"]] = (score, reason)
         except Exception as e:
             print(f"Error parsing grader scores: {e}")
@@ -653,6 +787,24 @@ def main():
             if j["id"] in scores:
                 sc, why = scores[j["id"]]
                 print(f"   {sc:>3} [{j['id']}] {(j.get('company') or '?')[:22]} | {(j.get('title') or '?')[:45]} -- {why[:90]}")
+
+        # Re-open every job about to be reported; drop any that closed since the deep scrape.
+        to_check = [j for j in approved] + [j for j, _, _ in near_misses]
+        if to_check:
+            print(f"Re-checking {len(to_check)} link(s) before reporting...")
+            status = still_open([j.get("url") for j in to_check if j.get("url")])
+            closed = {j["id"] for j in to_check if status.get(j.get("url")) is False}
+            unknown = sum(1 for j in to_check if status.get(j.get("url")) is None)
+            if closed:
+                for j in to_check:
+                    if j["id"] in closed:
+                        filtered.append((j, ["closed before the report was sent"]))
+                        print(f"   x [{j['id']}] {j.get('company', '?')} | {(j.get('title') or '?')[:50]} -- closed")
+                approved = [j for j in approved if j["id"] not in closed]
+                near_misses = [(j, sc, why) for j, sc, why in near_misses if j["id"] not in closed]
+                closed_ids.update(closed)
+            if unknown:
+                print(f"   ? {unknown} link(s) couldn't be read; kept (no evidence they closed).")
 
         # Step 2: full write-ups, only for jobs Python approved, using Python's scores.
         if approved:
@@ -679,16 +831,19 @@ def main():
     * **Match Score:** 🎯 SCORE/100
     * **Category:** 📂 CATEGORY
     * **Hiring Track:** [the job's "hiring_track" value, copied verbatim]
-    * **Deadline/Timeline:** ⏳ [explicit deadline, or "Rolling / ASAP. Apply immediately."]
+    * **Deadline/Timeline:** ⏳ [a deadline or start date the posting states; otherwise exactly "No deadline stated"]
 
     **🟢 PROS (Alignment):**
+
     * [1-2 specific reasons the candidate fits]
 
     **🔴 POTENTIAL HURDLES:**
+
     * [real gaps the candidate should prepare to address]
 
     **⚖️ THE VERDICT:**
-    * [one sentence]
+
+    [one sentence]
 
     ---
     """
@@ -725,7 +880,7 @@ def main():
                         + "\n".join(lines)
                         + "\n\n_Want a package for one of these? Run "
                           "`python auto_fulfiller.py --near-miss N1 N3` (or `all`)._")
-    below = len(eligible) - len(approved) - len(near_misses)
+    below = len(eligible) - len(approved) - len(near_misses) - len(closed_ids)
     if below > 0:
         sections.append(f"\n_{below} other eligible job(s) scored below {report['near_miss_floor']}._")
     if report["show_filtered_jobs"] and filtered:
@@ -733,7 +888,7 @@ def main():
                  for j, r in filtered]
         sections.append("\n---\n\n## Filtered out by hard rules\n\n" + "\n".join(lines))
     with open("FINAL_STRATEGY.md", "w") as f:
-        f.write("\n".join(sections))
+        f.write(fix_markdown_lists("\n".join(sections)))
 
     # Record outcomes: approved jobs are packaged; everything else goes on the cooldown timer.
     approved_ids = {j["id"] for j in approved}
