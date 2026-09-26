@@ -480,7 +480,46 @@ def send_report():
 # evaluation tracker (update_tracker.py): the agent's decision next to your own verdict.
 RUN_LOG = "agent_log.csv"
 RUN_LOG_FIELDS = ["run_date", "company", "title", "location", "decision", "score", "reason",
-                  "hiring_track", "rules_version", "url"]
+                  "hiring_track", "rules_version", "url", "description_hash"]
+
+# Every posting the agent evaluates, saved in full. The run log records WHAT the agent decided;
+# this records what it decided ON -- so any logged job can be re-run against a future version of
+# the agent, even after the posting is taken down. One JSON object per line; a posting is stored
+# again only if its text changes.
+POSTINGS_ARCHIVE = "postings.jsonl"
+
+
+def description_hash(job):
+    desc = job.get("full_description") or ""
+    return hashlib.sha1(_norm(desc).encode()).hexdigest()[:16] if desc else ""
+
+
+def archive_postings(jobs, run_date, rules_version):
+    known = set()
+    if os.path.exists(POSTINGS_ARCHIVE):
+        with open(POSTINGS_ARCHIVE, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                    known.add((rec.get("url"), rec.get("description_hash")))
+                except json.JSONDecodeError:
+                    continue
+    added = 0
+    with open(POSTINGS_ARCHIVE, "a", encoding="utf-8") as f:
+        for job in jobs:
+            h = description_hash(job)
+            if not h or (job.get("url"), h) in known:
+                continue
+            known.add((job.get("url"), h))
+            f.write(json.dumps({
+                "url": job.get("url"), "description_hash": h, "first_archived": run_date,
+                "rules_version": rules_version, "company": job.get("company"),
+                "title": job.get("title"), "location": job.get("location"),
+                "raw_text": job.get("raw_text"), "full_description": job.get("full_description"),
+                "requirements": job.get("requirements"),
+            }, ensure_ascii=False) + "\n")
+            added += 1
+    print(f"Archived {added} new posting(s) to {POSTINGS_ARCHIVE}.")
 
 
 def append_run_log(rows):
@@ -922,8 +961,10 @@ def main():
             "location": job.get("location") or "", "decision": decision, "score": score,
             "reason": reason, "hiring_track": (job.get("requirements") or {}).get("hiring_track") or "",
             "rules_version": rules_version, "url": job.get("url") or "",
+            "description_hash": description_hash(job),
         })
     append_run_log(log_rows)
+    archive_postings(scraped, run_date, rules_version)
 
     print(f"Grader outcome: {len(approved)} approved, {len(near_misses)} near-miss, "
           f"{max(below, 0)} below {report['near_miss_floor']}, {len(filtered)} filtered by rules.")
