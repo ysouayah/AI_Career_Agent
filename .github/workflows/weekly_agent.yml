@@ -2,8 +2,8 @@ name: Weekly AI Career Agent
 
 on:
   schedule:
-    # Runs at 13:00 UTC (9:00 AM Boston time) every Monday (1)
-    - cron: '37 13 * * 1'
+    - cron: '37 7 * * 1'
+      timezone: "America/New_York"
   workflow_dispatch:
 
 jobs:
