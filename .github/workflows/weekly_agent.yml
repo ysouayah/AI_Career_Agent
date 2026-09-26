@@ -39,9 +39,11 @@ jobs:
         EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
       run: python run_everything.py
 
-    - name: Commit Updated Memory Bank
+      - name: Commit Updated Memory Bank
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add -f memory_bank.db
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update memory bank" && git push)
+        for f in memory_bank.db agent_log.csv postings.jsonl; do
+          if [ -f "$f" ]; then git add -f "$f"; fi
+        done
+        git diff --staged --quiet || (git commit -m "Auto-update memory bank, run log, and posting archive" && git pull --rebase --autostash && git push)
