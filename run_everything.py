@@ -74,6 +74,7 @@ def load_config():
             config = json.load(f)
     facts = config.get("candidate_facts", {})
     facts.setdefault("graduation", "2027-05")
+    facts.setdefault("earliest_start", facts["graduation"])
     facts.setdefault("highest_degree", "bachelors")
     facts.setdefault("spoken_languages", ["english"])
     facts.setdefault("can_relocate", False)
@@ -178,6 +179,9 @@ Return ONE JSON object with exactly these keys:
     Years of experience with a specific TOOL (e.g. "2+ years of Python") is not professional
     experience. null if no requirement is stated.
 "years_preferred": integer or null
+    MINIMUM years of professional experience the posting PREFERS but does not require
+    ("1-3 years preferred" -> 1, "ideally 2+ years in investment management" -> 2). If
+    internships or academic projects count toward it, return 0. null if none is stated.
 "degree_required": "none" | "bachelors" | "masters" | "phd" | null
     The minimum degree REQUIRED. A degree that is only preferred does not count.
 "work_mode": "onsite" | "hybrid" | "remote" | "unknown"
@@ -211,13 +215,20 @@ Return ONE JSON object with exactly these keys:
     immediately, ASAP, or within weeks, or describes backfilling a current seat -- AND names
     no class year, program, or future cohort start.
     unclear = the posting states neither. When in doubt, use unclear.
+    NOT evidence of an immediate hire: experience ranges ("0-2 years"), seniority words
+    ("early-career", "mid-level"), welcoming recent graduates, rolling or ongoing
+    applications, applicant counts, or how long ago the job was posted. The evidence quote
+    must say WHEN the hire starts or that a current seat is being filled. A posting that is
+    simply not a campus program is "unclear", not "immediate_hire".
 "evidence": object
     For EVERY value that could disqualify a new graduate, add a key holding a SHORT VERBATIM
     QUOTE (under 25 words) copied exactly from the posting. Use these keys:
       employer_type, employment_type, min_years_required, degree_required,
       relocation_required, work_location, remote_residency_restriction,
       requires_active_clearance, required_languages, graduation_window, start_date,
-      hiring_track
+      hiring_track, years_preferred
+    For start_date and years_preferred, add the quote whenever you return a value, even
+    one that looks harmless.
     If you cannot quote text from the posting that supports a value, do not assert it.
 
 POSTING:
@@ -374,6 +385,38 @@ def fix_markdown_lists(md):
     return "\n".join(out)
 
 
+TIMING_EVIDENCE = re.compile(
+    r"\b(immediate(ly)?|asap|as soon as possible|right away|start date|"
+    r"start(s|ing)?\s+(in|on|by|within|immediately)|within\s+\d+\s+(days|weeks)|backfill|urgent(ly)?)\b",
+    re.IGNORECASE)
+
+# ---- Preferred experience and start-before-availability caps --------------------------------
+# Both are soft: the job stays visible as a near miss instead of disappearing, because a
+# preference can be waived and a cohort start date can sometimes be deferred.
+PREFERRED_EXP_CAP = 79     # e.g. HarbourVest: "1-3 years ... in investment management" preferred
+EARLY_START_CAP = 84       # e.g. Veeva: cohort starts July 2027, candidate available September
+
+
+def preferred_years(req, posting):
+    """Preferred years of experience, when the quote is in the posting and states that number."""
+    n = req.get("years_preferred")
+    quote = (req.get("evidence") or {}).get("years_preferred")
+    if (isinstance(n, int) and n >= 1 and isinstance(quote, str)
+            and quote_found(quote, posting) and re.search(rf"\b{n}\b", quote)):
+        return n
+    return None
+
+
+def early_start(req, posting, grad, earliest):
+    """A verified start date after graduation but before the candidate is available."""
+    sd = req.get("start_date")
+    quote = (req.get("evidence") or {}).get("start_date")
+    if (isinstance(sd, str) and DATE.match(sd) and grad <= sd < earliest
+            and isinstance(quote, str) and quote_found(quote, posting)):
+        return sd
+    return None
+
+
 def apply_rules(f, facts, vetos, text):
     """Each hard rule is one explicit check on an extracted field, and fires ONLY when the model's
     supporting quote is verified against the posting text. Returns (reasons, unverified)."""
@@ -446,7 +489,14 @@ def apply_rules(f, facts, vetos, text):
           f"start date {sd} is before graduation")
 
     # A seat being filled now will be gone long before a Spring graduate can start. Like every
-    # other rule, it only fires on a verified quote; "unclear" postings go through.
+    # other rule, it only fires on a verified quote; "unclear" postings go through. The quote
+    # must also be ABOUT timing: on 9/28 the model cited "recent graduates welcome" and
+    # "0-3 years of experience" as proof of an immediate hire, and five entry-level jobs
+    # vanished. Evidence that doesn't mention timing downgrades the label to unclear.
+    track_quote = evidence.get("hiring_track")
+    if f.get("hiring_track") == "immediate_hire" and not (
+            isinstance(track_quote, str) and TIMING_EVIDENCE.search(track_quote)):
+        f["hiring_track"] = "unclear"
     check("hiring_track",
           vetos["filter_immediate_hires"] and f.get("hiring_track") == "immediate_hire",
           "immediate hire, not a new-grad cohort")
@@ -806,6 +856,16 @@ def main():
                     if gaps and score > UNMET_REQ_CAP:
                         reason = f"[capped from {score}: requires {'; '.join(gaps)}, not on resume] {reason}"
                         score = UNMET_REQ_CAP
+                    req = (by_id.get(row["id"]) or {}).get("requirements") or {}
+                    pref = preferred_years(req, posting)
+                    if pref and score > PREFERRED_EXP_CAP:
+                        reason = f"[capped from {score}: prefers {pref}+ years of experience] {reason}"
+                        score = PREFERRED_EXP_CAP
+                    start = early_start(req, posting, facts["graduation"], facts["earliest_start"])
+                    if start and score > EARLY_START_CAP:
+                        reason = (f"[capped from {score}: starts {start}, before your "
+                                  f"{facts['earliest_start']} availability] {reason}")
+                        score = EARLY_START_CAP
                     scores[row["id"]] = (score, reason)
         except Exception as e:
             print(f"Error parsing grader scores: {e}")
