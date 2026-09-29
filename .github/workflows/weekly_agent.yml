@@ -32,6 +32,14 @@ jobs:
         echo 'EMAIL_USER = "${{ secrets.EMAIL_USER }}"' >> secrets.toml
         echo 'EMAIL_PASS = "${{ secrets.EMAIL_PASS }}"' >> secrets.toml
 
+    - name: Restore Handshake session
+      env:
+        HANDSHAKE_STATE: ${{ secrets.HANDSHAKE_STATE }}
+      run: |
+        if [ -n "$HANDSHAKE_STATE" ]; then
+          echo "$HANDSHAKE_STATE" | base64 --decode | gunzip > handshake_state.json
+        fi
+
     - name: Run AI Pipeline
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
