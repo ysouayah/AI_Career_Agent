@@ -1034,7 +1034,16 @@ def main():
         json.dump(near_miss_records, f, indent=4)
 
     # --- Report ---
-    sections = ["# 🎯 Weekly AI Job Strategy: High-Probability Matches\n",
+    sections = ["# 🎯 Weekly AI Job Strategy: High-Probability Matches\n"]
+    try:
+        with open("handshake_status.json") as f:
+            hs = json.load(f)
+        if not hs.get("ok"):
+            sections.append(f"> ⚠️ **Handshake skipped: {hs.get('message', 'unknown problem')}.** "
+                            f"Run `python handshake_auth.py` and update the HANDSHAKE_STATE secret.\n")
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    sections += [
                 writeups or "No high-scoring matches found in this batch."]
     if report["show_near_misses"] and near_misses:
         lines = [f"- `{r['near_miss_label']}` **[{r.get('title', '?')}]({r.get('url', '')})** — "

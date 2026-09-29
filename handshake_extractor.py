@@ -10,6 +10,7 @@ from playwright_stealth import Stealth
 
 STATE_FILE = "handshake_state.json"
 OUTPUT_FILE = "handshake_jobs.json"
+STATUS_FILE = "handshake_status.json"   # read by run_everything.py to warn in the report
 MAX_PAGES = 5
 
 # Handshake has used both /jobs/<id> and /job-search/<id>; match either, by numeric id.
@@ -33,6 +34,11 @@ def looks_logged_out(url):
     return any(marker in (url or "") for marker in LOGIN_MARKERS)
 
 
+def write_status(ok, message):
+    with open(STATUS_FILE, "w") as f:
+        json.dump({"ok": ok, "message": message}, f)
+
+
 async def extract_job_data():
     print("--- INITIATING HANDSHAKE EXTRACTION ---")
 
@@ -53,9 +59,11 @@ async def extract_job_data():
         print(f"!!! {STATE_FILE} not found. Handshake search requires a login -- skipping Handshake. !!!")
         with open(OUTPUT_FILE, "w") as f:
             json.dump([], f)
+        write_status(False, "no Handshake session available")
         return
 
     jobs_by_id = {}
+    session_expired = False
     async with Stealth().use_async(async_playwright()) as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(storage_state=STATE_FILE,
@@ -77,7 +85,8 @@ async def extract_job_data():
 
                 if looks_logged_out(page.url):
                     print("!!! Handshake session has expired: redirected to the login page. !!!")
-                    print(f"!!! Re-create {STATE_FILE} by logging in again (see the note in the docs). !!!")
+                    print(f"!!! Run handshake_auth.py and update the HANDSHAKE_STATE secret. !!!")
+                    session_expired = True
                     break
 
                 origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlparse(page.url))
@@ -122,6 +131,10 @@ async def extract_job_data():
     print(f"====================================\n")
     with open(OUTPUT_FILE, "w") as f:
         json.dump(jobs, f, indent=4)
+    if session_expired:
+        write_status(False, "Handshake session expired")
+    else:
+        write_status(True, f"{len(jobs)} job(s) extracted")
 
 
 if __name__ == "__main__":
