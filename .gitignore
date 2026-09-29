@@ -25,3 +25,8 @@ secrets.toml
 !resume.pdf
 application_packages/
 agent_tracker.xlsx
+
+handshake_state.json
+handshake_state.b64
+handshake_status.json
+handshake_debug_*.png
