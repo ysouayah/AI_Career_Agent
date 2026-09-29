@@ -84,6 +84,9 @@ def load_config():
     vetos.setdefault("max_required_years_experience", 0)
     vetos.setdefault("min_match_score_threshold", 85)
     vetos.setdefault("filter_immediate_hires", True)
+    # Until the candidate is this close to their start date, only roles built for their
+    # graduating class can be approved; open-now roles become near misses.
+    vetos.setdefault("open_roles_approvable_within_months", 4)
     report = config.get("report", {})
     report.setdefault("show_filtered_jobs", True)
     report.setdefault("show_near_misses", True)
@@ -227,8 +230,8 @@ Return ONE JSON object with exactly these keys:
       relocation_required, work_location, remote_residency_restriction,
       requires_active_clearance, required_languages, graduation_window, start_date,
       hiring_track, years_preferred
-    For start_date and years_preferred, add the quote whenever you return a value, even
-    one that looks harmless.
+    For start_date, years_preferred, graduation_window, and hiring_track (campus_cohort
+    included), add the quote whenever you return a value, even one that looks harmless.
     If you cannot quote text from the posting that supports a value, do not assert it.
 
 POSTING:
@@ -397,6 +400,38 @@ PREFERRED_EXP_CAP = 79     # e.g. HarbourVest: "1-3 years ... in investment mana
 EARLY_START_CAP = 84       # e.g. Veeva: cohort starts July 2027, candidate available September
 
 
+OPEN_ROLE_CAP = 84          # e.g. Square, MITRE, Workhuman in September: right level, wrong year
+OFF_TARGET_CAP = 79         # e.g. RSM Risk Consulting: eligible major, but the work is audit
+
+
+def built_for_class(req, posting, grad):
+    """True when the posting itself shows it is hiring the candidate's graduating class: a
+    verified campus/cohort quote, a verified graduation window that includes graduation, or a
+    verified start date on or after graduation. A label without a verified quote doesn't count,
+    so an unsupported "campus_cohort" lands as a visible near miss rather than an approval."""
+    ev = req.get("evidence") or {}
+    if req.get("hiring_track") == "campus_cohort" and quote_found(ev.get("hiring_track") or "", posting):
+        return True
+    ws, we = req.get("graduation_window_start"), req.get("graduation_window_end")
+    if ((ws or we) and (not ws or ws <= grad) and (not we or grad <= we)
+            and quote_found(ev.get("graduation_window") or "", posting)):
+        return True
+    sd = req.get("start_date")
+    if (isinstance(sd, str) and DATE.match(sd) and sd >= grad
+            and quote_found(ev.get("start_date") or "", posting)):
+        return True
+    return False
+
+
+def months_until(ym, today=None):
+    today = today or datetime.now()
+    try:
+        y, m = map(int, ym.split("-"))
+    except (AttributeError, ValueError):
+        return 0
+    return (y - today.year) * 12 + (m - today.month)
+
+
 def preferred_years(req, posting):
     """Preferred years of experience, when the quote is in the posting and states that number."""
     n = req.get("years_preferred")
@@ -415,6 +450,16 @@ def early_start(req, posting, grad, earliest):
             and isinstance(quote, str) and quote_found(quote, posting)):
         return sd
     return None
+
+
+# "For immediate consideration, please email your resume" is about applying, not starting.
+APPLICATION_PHRASES = re.compile(
+    r"immediate(ly)?\s+(consideration|review)|(apply|respond|submit|send)\w*\s+(your\s+\w+\s+)?"
+    r"(immediately|asap|as soon as possible)", re.IGNORECASE)
+
+
+def has_timing_evidence(quote):
+    return isinstance(quote, str) and bool(TIMING_EVIDENCE.search(APPLICATION_PHRASES.sub(" ", quote)))
 
 
 def apply_rules(f, facts, vetos, text):
@@ -483,6 +528,8 @@ def apply_rules(f, facts, vetos, text):
     check("graduation_window", bool((ws and grad < ws) or (we and grad > we)),
           f"targets graduates {ws or '?'} to {we or '?'}")
 
+    if f.get("start_date") == "immediate" and not has_timing_evidence(evidence.get("start_date")):
+        f["start_date"] = None
     sd = f.get("start_date")
     check("start_date",
           sd == "immediate" or (isinstance(sd, str) and bool(DATE.match(sd)) and sd < grad),
@@ -493,9 +540,7 @@ def apply_rules(f, facts, vetos, text):
     # must also be ABOUT timing: on 9/28 the model cited "recent graduates welcome" and
     # "0-3 years of experience" as proof of an immediate hire, and five entry-level jobs
     # vanished. Evidence that doesn't mention timing downgrades the label to unclear.
-    track_quote = evidence.get("hiring_track")
-    if f.get("hiring_track") == "immediate_hire" and not (
-            isinstance(track_quote, str) and TIMING_EVIDENCE.search(track_quote)):
+    if f.get("hiring_track") == "immediate_hire" and not has_timing_evidence(evidence.get("hiring_track")):
         f["hiring_track"] = "unclear"
     check("hiring_track",
           vetos["filter_immediate_hires"] and f.get("hiring_track") == "immediate_hire",
@@ -769,6 +814,11 @@ def main():
     # --- PHASE 7: The Grader -- the model scores, Python applies the threshold ---
     print("\n--- PHASE 7: THE GRADER (SCORING FIT) ---")
     approved, near_misses, scores = [], [], {}
+    months_out = months_until(facts["earliest_start"])
+    gate_open_roles = months_out > vetos["open_roles_approvable_within_months"]
+    print(f"Availability {facts['earliest_start']} is {months_out} month(s) away: "
+          + ("only roles built for your class can be approved." if gate_open_roles
+             else "open-now roles can be approved."))
     closed_ids = set()   # scored, then found closed at the pre-send link check
     writeups = ""
 
@@ -826,6 +876,12 @@ def main():
     (Java/Kotlin)" -> {{"skills": ["Golang", "Java", "Kotlin"], "quote": "proven ability in Golang
     or JVM languages (Java/Kotlin)"}}. A job with any unmet required skill stays in the 70s at most.
 
+    CORE WORK: judge the job by what the hire will spend their days doing, not by whether the
+    posting lists the candidate's major or skills. If that core work falls outside the
+    candidate's primary and interdisciplinary interests (see INTERESTS), describe it in a few
+    words in "core_work_outside_targets" (e.g. "IT audit and SOX controls testing") and keep
+    the score in the 70s at most. Otherwise use null.
+
     Backstop only: if you see an unmistakable hard disqualifier the checks missed -- for example
     an explicit requirement of prior full-time experience -- score that job 0.
 
@@ -837,7 +893,7 @@ def main():
 
     Return ONLY a JSON array with one object per job:
     [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor",
-      "missing_title_tech": null, "unmet_requirements": []}}]
+      "missing_title_tech": null, "unmet_requirements": [], "core_work_outside_targets": null}}]
     """
         by_id = {j["id"]: j for j in eligible}
         try:
@@ -866,6 +922,15 @@ def main():
                         reason = (f"[capped from {score}: starts {start}, before your "
                                   f"{facts['earliest_start']} availability] {reason}")
                         score = EARLY_START_CAP
+                    off_target = row.get("core_work_outside_targets")
+                    if isinstance(off_target, str) and off_target.strip() and score > OFF_TARGET_CAP:
+                        reason = f"[capped from {score}: core work is {off_target.strip()}, outside your targets] {reason}"
+                        score = OFF_TARGET_CAP
+                    if (gate_open_roles and score > OPEN_ROLE_CAP
+                            and not built_for_class(req, posting, facts["graduation"])):
+                        reason = (f"[capped from {score}: open now, not a {facts['graduation'][:4]} graduate "
+                                  f"program; you're available {facts['earliest_start']}] {reason}")
+                        score = OPEN_ROLE_CAP
                     scores[row["id"]] = (score, reason)
         except Exception as e:
             print(f"Error parsing grader scores: {e}")
