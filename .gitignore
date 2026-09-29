@@ -23,4 +23,5 @@ secrets.toml
 *.json
 *.pdf
 !resume.pdf
-application_packages/agent_tracker.xlsx
+application_packages/
+agent_tracker.xlsx
