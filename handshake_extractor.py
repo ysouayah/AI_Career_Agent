@@ -30,6 +30,32 @@ def canonical_url(origin, jid):
     return f"{origin}/jobs/{jid}"
 
 
+JOB_LINKS = "a[href*='/jobs/'], a[href*='/job-search/']"
+
+
+async def first_job_href(page):
+    link = page.locator(JOB_LINKS).first
+    return await link.get_attribute("href") if await link.count() else None
+
+
+async def go_to_next_page(page):
+    """Handshake's "refer a friend" banner sits on top of the pagination buttons, so a normal
+    click lands on the banner and times out. Remove the banner, click the button directly in
+    the page, then wait until the results actually change."""
+    button = page.locator("button[aria-label*='next' i], button:has-text('Next')").first
+    if not await button.count() or await button.get_attribute("aria-disabled") == "true":
+        return False
+    before = await first_job_href(page)
+    await page.evaluate("""() => document.querySelectorAll('[data-hook="referral-bottom-banner"]')
+                                    .forEach(el => el.remove())""")
+    await button.evaluate("b => b.click()")
+    for _ in range(30):                      # up to ~15 s for the next page of results
+        await page.wait_for_timeout(500)
+        if await first_job_href(page) not in (None, before):
+            return True
+    return False
+
+
 def looks_logged_out(url):
     return any(marker in (url or "") for marker in LOGIN_MARKERS)
 
@@ -92,7 +118,14 @@ async def extract_job_data():
                 origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlparse(page.url))
                 for page_num in range(1, MAX_PAGES + 1):
                     try:
-                        await page.wait_for_selector("a[href*='/jobs/'], a[href*='/job-search/']", timeout=20000)
+                        try:
+                            await page.wait_for_selector(JOB_LINKS, timeout=20000)
+                        except PlaywrightTimeout:
+                            if page_num != 1:
+                                raise
+                            # The first search after launch sometimes renders slowly; give it one reload.
+                            await page.reload(wait_until="domcontentloaded")
+                            await page.wait_for_selector(JOB_LINKS, timeout=20000)
                     except PlaywrightTimeout:
                         shot = f"handshake_debug_q{q_index}_p{page_num}.png"
                         await page.screenshot(path=shot, full_page=True)
@@ -100,7 +133,7 @@ async def extract_job_data():
                         break
                     await page.wait_for_timeout(random.uniform(3500, 6200))
 
-                    for element in await page.locator("a[href*='/jobs/'], a[href*='/job-search/']").all():
+                    for element in await page.locator(JOB_LINKS).all():
                         href = await element.get_attribute("href")
                         jid = job_id(href)
                         if not jid:
@@ -113,11 +146,7 @@ async def extract_job_data():
 
                     if page_num == MAX_PAGES:
                         break
-                    next_button = page.locator("button[aria-label*='Next' i], button:has-text('Next')").first
-                    if await next_button.count() and await next_button.is_visible() and not await next_button.is_disabled():
-                        await next_button.click()
-                        await page.wait_for_load_state("domcontentloaded")
-                    else:
+                    if not await go_to_next_page(page):
                         break
             except Exception as e:
                 print(f"!!! Error on query '{title}': {e} !!!")
@@ -133,6 +162,9 @@ async def extract_job_data():
         json.dump(jobs, f, indent=4)
     if session_expired:
         write_status(False, "Handshake session expired")
+    elif not jobs:
+        # Zero jobs across every query is never a normal week; something blocked the searches.
+        write_status(False, "0 jobs found across all searches (blocked, or Handshake's page changed)")
     else:
         write_status(True, f"{len(jobs)} job(s) extracted")
 

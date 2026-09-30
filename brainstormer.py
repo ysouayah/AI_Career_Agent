@@ -51,6 +51,9 @@ def main():
     - Include both bare titles ("Data Analyst") and cohort-marked variants
       ("Data Analyst 2027", "New Grad Data Scientist", "University Graduate Analyst").
     - Do NOT include seniority markers like Senior, Staff, Principal, Lead, or Manager.
+    - Search only for the employment types in hard_vetos.accepted_employment_types. If that
+      is full-time only, do NOT include Intern, Internship, Co-op, Part-time, or Summer in any
+      title -- the candidate cannot accept those, and each one wastes a search.
     - Vary the vocabulary. Ten near-identical strings waste scraper budget.
     """
 
@@ -72,6 +75,14 @@ def main():
             
             if not targets.get("titles") or len(targets["titles"]) == 0:
                 raise ValueError("AI response structure is missing valid job titles.")
+
+            # Every extractor searches only the FIRST location, so it must be the candidate's
+            # own city from the config, not whatever the model happened to list first.
+            home = (json.loads(preferences).get("candidate_facts", {}).get("location")
+                    if preferences else None)
+            if home:
+                others = [l for l in targets.get("locations", []) if l.lower() != home.lower()]
+                targets["locations"] = [home] + others
                 
             with open("search_targets.json", "w") as f:
                 json.dump(targets, f, indent=4)

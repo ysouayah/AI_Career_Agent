@@ -98,8 +98,40 @@ def load_config():
 # Card stage: normalisation, location presence check, relevance ranking
 # ------------------------------------------------------------------------------------------
 
+# Handshake cards: company, industry, title, "pay∙type∙dates", [BU collections], location, "∙", posted.
+HANDSHAKE_TYPE = re.compile(r"full-time|part-time|internship|co-op|fellowship|on-campus|temporary|seasonal", re.I)
+HANDSHAKE_NOISE = re.compile(r"^(∙|bu collections|new|\d+\s*(h|d|wk|mo|yr)s?\s+ago)$", re.I)
+
+
+def normalize_handshake(job):
+    card = [str(x).strip() for x in (job.get("raw_text") or [])]
+    if len(card) >= 3:
+        if not job.get("company"):
+            job["company"] = card[0]
+        if not job.get("title"):
+            job["title"] = card[2]
+    type_idx = next((i for i in range(3, min(len(card), 6)) if HANDSHAKE_TYPE.search(card[i])), None)
+    job["card_job_type"] = card[type_idx] if type_idx is not None else ""
+    start = (type_idx + 1) if type_idx is not None else 3
+    if not job.get("location"):
+        job["location"] = next((l for l in card[start:] if not HANDSHAKE_NOISE.match(l)), "")
+    return job
+
+
+def card_type_ok(job, accepted):
+    """Handshake states the job type on the card, so internships and co-ops can go before any
+    model call. Other boards don't, and extraction still catches those later."""
+    t = (job.get("card_job_type") or "").lower()
+    if not t:
+        return True
+    names = {"full_time": "full-time", "part_time": "part-time", "internship": "internship", "co_op": "co-op"}
+    return any(names.get(a, a) in t for a in accepted)
+
+
 def normalize_card(job):
     """Extractors only populate raw_text; title/company/location live inside it."""
+    if job.get("source") == "Handshake":
+        return normalize_handshake(job)
     card = job.get("raw_text") or []
     if not job.get("title") and len(card) > 0:
         job["title"] = str(card[0]).strip()
@@ -700,6 +732,11 @@ def main():
             f.write("# 🎯 Weekly AI Job Strategy\n\nNo Massachusetts or remote jobs were found this week.")
         send_report()
         return
+
+    before = len(fresh_jobs)
+    fresh_jobs = [j for j in fresh_jobs if card_type_ok(j, vetos["accepted_employment_types"])]
+    if len(fresh_jobs) < before:
+        print(f"Card job-type check removed {before - len(fresh_jobs)} internship/co-op/part-time card(s).")
 
     fresh_jobs.sort(key=relevance, reverse=True)
     if len(fresh_jobs) > SIFTER_CAP:

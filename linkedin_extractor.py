@@ -5,6 +5,10 @@ import random
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 
+# LinkedIn's own filters: f_JT=F full-time, f_E=2 entry level. Without them most results were
+# 3-7-year roles that the rules then threw away, crowding real matches out of the top 80.
+LINKEDIN_FILTERS = "&f_JT=F&f_E=2"
+
 async def scrape_linkedin():
     print("--- INITIATING LINKEDIN EXTRACTION ---")
     
@@ -52,7 +56,8 @@ async def scrape_linkedin():
             for page_num in range(0, MAX_PAGES):
                 # LinkedIn increments by 25 (Page 1 = 0, Page 2 = 25, Page 3 = 50...)
                 start_param = page_num * 25
-                target_url = f"https://www.linkedin.com/jobs/search?keywords={encoded_query}&location={encoded_location}&start={start_param}"
+                target_url = (f"https://www.linkedin.com/jobs/search?keywords={encoded_query}"
+                              f"&location={encoded_location}{LINKEDIN_FILTERS}&start={start_param}")
                 
                 print(f"   [Scraping Page {page_num + 1}]")
                 

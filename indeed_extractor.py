@@ -5,6 +5,9 @@ import random
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 
+# Indeed's own filters: full-time, entry level. Same reason as LinkedIn's.
+INDEED_FILTERS = "&jt=fulltime&sc=0kf%3Aexplvl%28ENTRY_LEVEL%29%3B"
+
 async def scrape_indeed():
     print("--- INITIATING INDEED EXTRACTION ---")
     
@@ -51,7 +54,8 @@ async def scrape_indeed():
             for page_num in range(0, MAX_PAGES):
                 # Indeed increments pages by 10 items (Page 1 = 0, Page 2 = 10, Page 3 = 20...)
                 start_param = page_num * 10
-                target_url = f"https://www.indeed.com/jobs?q={encoded_query}&l={encoded_location}&start={start_param}"
+                target_url = (f"https://www.indeed.com/jobs?q={encoded_query}&l={encoded_location}"
+                              f"{INDEED_FILTERS}&start={start_param}")
                 
                 print(f"   [Scraping Page {page_num + 1}]")
                 
