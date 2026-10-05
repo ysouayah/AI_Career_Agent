@@ -38,15 +38,22 @@ def on_dashboard(url):
         and ("/explore" in url or "/home" in url or "/job-search" in url or "/postings" in url)
 
 
-def wait_for_login(context, timeout_s=180):
+def wait_for_login(context, timeout_s=180, is_done=on_dashboard):
     """Watch EVERY tab: BU sign-on or the school picker can finish the login in a new tab,
-    so the tab this script opened may never leave the login page."""
-    import time
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        if any(on_dashboard(pg.url) for pg in context.pages):
+    so the tab this script opened may never leave the login page.
+
+    The pause must be Playwright's own wait_for_timeout, not time.sleep: in the sync API,
+    tab URLs and the tab list only update while Playwright is processing browser events,
+    and time.sleep stops that -- the script kept seeing the login URL while you were on /home."""
+    waited = 0
+    while waited < timeout_s * 1000:
+        pages = context.pages
+        if not pages:
+            return False
+        if any(is_done(pg.url) for pg in pages):
             return True
-        time.sleep(2)
+        pages[0].wait_for_timeout(2000)
+        waited += 2000
     return False
 
 

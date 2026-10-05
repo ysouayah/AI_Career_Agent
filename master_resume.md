@@ -10,7 +10,8 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 ## TECHNICAL SKILLS
 
 - **Languages & Tools:** Python (Pandas, NumPy), SQL, PostgreSQL, R, Tableau, Plotly, Streamlit, Git
-- **AI & Data Engineering:** LLM orchestration (Gemini API), Retrieval-Augmented Generation (RAG), prompt engineering, Playwright browser automation, ETL pipeline design, GitHub Actions
+- **AI & Data Engineering:** LLM orchestration (Gemini API), Retrieval-Augmented Generation (RAG), prompt engineering, AI-assisted development (Windsurf, Claude), Playwright browser automation, ETL pipeline design, GitHub Actions
+- **Machine Learning:** PyTorch, TensorFlow, scikit-learn (coursework)
 - **Productivity Tools:** Microsoft Office Suite, Google Workspace
 - **Spoken Languages:** Native fluency in English and Arabic; full professional fluency in French
 - **Certifications:** CITI Program Certification: Human Subjects Protection Training – Social & Behavioral Focus, Boston University (Charles River Campus) | Record ID: 77467029 | Completed June 3, 2026 (Expires June 3, 2029)
@@ -19,7 +20,7 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 
 ### BU Spark!, Boston University — Special Initiatives Intern | September 2026 – Present
 - Scope, draft, and audit technical Project Descriptions defining deliverables, data requirements, and success criteria for client-sponsored machine learning and data science practicum teams (CDS DS 549/701, Justice Media Co-Lab).
-- Translate external partner problem statements into engineering-ready specifications that serve as the working contract between student engineering teams, faculty, and clients across multi-semester engagements.
+- Work directly with external partners, including on client calls, to translate their problem statements into engineering-ready specifications that serve as the working contract between student engineering teams, faculty, and clients across multi-semester engagements.
 
 ### Department of Political Science, Boston University, Boston, MA — Research Assistant to Estelle Brun (PhD Candidate) | Summer 2026
 - **Qualitative Data Processing:** Transcribed, formatted, and processed semi-structured French audio interviews with elected officials and cultural bureaucrats across Southeastern France (PACA) for a comparative political science dissertation.
@@ -37,8 +38,8 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 - Built an automated SEO link-mapping pipeline using Python, LLMs, and stealth browser automation to map 590+ verbatim internal links across 270+ live articles with 99.5% verified accuracy, saving 30+ hours of manual site maintenance.
 
 ### Boston Debate League — Data & Policy Analytics Intern | Summer 2026
-- Engineered a cross-season data tracking pipeline analyzing multi-year tournament datasets (2024–2026) across 80+ schools to quantify BDL Summer Camp ROI across 4 core dimensions.
-- Developed custom data normalization algorithms to resolve historical false positives, accurately mapping student retention, division mobility, and speaker point progression.
+- Engineered a cross-season data tracking pipeline in Python and SQL analyzing multi-year tournament datasets (2024–2026) across 80+ schools to quantify BDL Summer Camp ROI across 4 core dimensions.
+- Developed custom data normalization algorithms in Python and SQL to resolve historical false positives, accurately mapping student retention, division mobility, and speaker point progression.
 - Conducted comparative cohort analyses demonstrating BDL Summer Camp attendees improved speaker points 78% more than non-attendees (+1.51 pts vs. +0.85 pts control group) and drove a +6.3% school-wide win rate advantage.
 - Synthesized empirical research into an executive memo for senior leadership, delivering data-backed policy recommendations on scholarship allocation, bridge retention, and program equity.
 
@@ -58,6 +59,7 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 - Designed a deterministic nine-gate veto rubric compiled dynamically from a JSON preference config, hard-zeroing any role that trips explicit years-of-experience minimums, semantic seniority markers ("end-to-end ownership," "production at scale"), off-cohort graduation timelines, non-commutable locations, unmet hard requirements, internships, or predatory staffing and resume-farm operators, then surfacing only matches scoring 85/100 or higher.
 - Built a Python-to-PDF fulfillment engine on ReportLab that compiles four upload-ready ATS documents per approved role — a pruned one-page tailored resume, cover letter, 15-question interview prep sheet, and a company brief grounded in live web-search retrieval — hardened with URL-keyed report reconciliation, XML sanitization, and exponential-backoff retry logic against 429/503 rate limits.
 
+- Added evidence verification so every automated rejection must cite a quote found verbatim in the source posting, and built an evaluation tracker that compares agent decisions against human labels to measure precision and miss rate.
 ### "Pick For Me" Live Market Discovery Agent | July 2026
 - Engineered a real-time web scraping pipeline utilizing Python and SerpApi to dynamically extract, clean, and normalize live retail inventory and local business data from Google search results.
 - Designed a multi-phase LLM evaluation engine (Gemini 2.5 Flash) to parse unstructured user constraints, combining strict deterministic filtering with an exponentially weighted AI scoring matrix to mathematically rank optimal results.
