@@ -50,6 +50,22 @@
       "Tableau"
     ]
   },
+  "search_titles_core": [
+    "Associate Consultant",
+    "Associate Business Consultant",
+    "Analytics Consultant",
+    "Data Analyst",
+    "Data Scientist",
+    "New Grad Data Analyst",
+    "New Grad Data Scientist",
+    "Research Analyst",
+    "Policy Analyst",
+    "Business Analyst"
+  ],
+  "search_titles_excluded": [
+    "Quantitative Analyst",
+    "Machine Learning Engineer"
+  ],
   "hard_vetos": {
     "accepted_employment_types": [
       "full_time"

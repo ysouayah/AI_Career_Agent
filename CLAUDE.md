@@ -9,7 +9,9 @@ May 2027). Runs every Monday on GitHub Actions, scrapes job boards, grades posti
 resume, and emails a report plus tailored application packages.
 
 ## Pipeline (run_everything.py orchestrates; each phase is a separate script)
-1. `brainstormer.py` → `search_targets.json` (search titles; first location is always Boston)
+1. `brainstormer.py` → `search_targets.json` (titles = `search_titles_core` from the config plus at
+   most 4 model titles drawn from the resume, minus `search_titles_excluded`; first location is
+   always Boston)
 2. Extractors → `*_jobs.json`: `linkedin_extractor.py`, `indeed_extractor.py` (board-side entry-level +
    full-time filters), `handshake_extractor.py` (needs `handshake_state.json`; see Handshake below)
 3. Card stage in run_everything: normalize cards (Handshake has its own layout), location check,
