@@ -21,9 +21,16 @@ def main():
         print("ERROR: GEMINI_API_KEY not found.")
         sys.exit(1)
 
+    # master_resume.md is the source of truth (same file the grader and fulfiller read).
     resume_text = ""
-    if os.path.exists("resume.pdf"):
+    if os.path.exists("master_resume.md"):
+        with open("master_resume.md", "r", encoding="utf-8") as f:
+            resume_text = f.read()
+    elif os.path.exists("resume.pdf"):
         resume_text = extract_resume_text("resume.pdf")
+    if not resume_text.strip():
+        print("WARNING: no resume found (master_resume.md or resume.pdf); "
+              "search titles will come from user_config.json alone.")
     
     preferences = ""
     if os.path.exists("user_config.json"):

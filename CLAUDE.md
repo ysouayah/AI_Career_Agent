@@ -98,8 +98,8 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
 `app.py` (old Streamlit front end; its default "wipe memory" option deletes `memory_bank.db`),
 `handshake_scraper.py`, `inbox_tracker.py`, `target_queries.json`, `preferences.txt`, `cron_log.txt`.
 `README.md` describes that older setup (`resume.pdf`, `preferences.txt`, `google-generativeai`) and
-is out of date. `brainstormer.py` still reads `resume.pdf`, which isn't in the repo, so it works
-from `user_config.json` alone; grading and packages use `master_resume.md`.
+is out of date. Every phase reads `master_resume.md`; `resume.pdf` is only a fallback when the
+markdown is missing.
 
 ## Git workflow
 - The GitHub bot commits after every run, so always start with `git pull --rebase --autostash`.
