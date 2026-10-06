@@ -10,6 +10,7 @@ low-scoring jobs are marked "Sample" -- the same URL is always in or out of the 
 sample can't be nudged by re-running.
 """
 import csv
+import re
 import hashlib
 import sys
 from datetime import datetime
@@ -22,6 +23,11 @@ SAMPLE_RATE = 0.10
 # Tracker columns A..K, in order.
 FIELDS = ["run_date", "company", "title", "location", "decision", "score", "reason",
           "hiring_track", "rules_version", "url"]
+
+
+def _key(run_date, company, title):
+    norm = lambda x: re.sub(r"[^a-z0-9]+", " ", str(x or "").lower()).strip()
+    return (str(run_date or "")[:10], norm(company), norm(title))
 
 
 def review_flag(row):
@@ -44,10 +50,14 @@ def main():
             run = ws.cell(row=r, column=1).value
             run = run.strftime("%Y-%m-%d") if hasattr(run, "strftime") else str(run or "")
             existing.add((run, str(ws.cell(row=r, column=10).value or "")))
+            # Rows added by hand (from an emailed report) have no URL; match those by run date,
+            # company and title so a later import doesn't add the same jobs twice.
+            existing.add(_key(run, ws.cell(row=r, column=2).value, ws.cell(row=r, column=3).value))
 
     with open(LOG, newline="", encoding="utf-8") as f:
         rows = [row for row in csv.DictReader(f)
-                if (row["run_date"], row["url"]) not in existing]
+                if (row["run_date"], row["url"]) not in existing
+                and _key(row["run_date"], row["company"], row["title"]) not in existing]
 
     for i, row in enumerate(rows, start=last + 1):
         for c, key in enumerate(FIELDS, start=1):
