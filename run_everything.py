@@ -341,7 +341,13 @@ def find_duplicates(jobs):
 # "closed" banner at all. So every job about to be reported is opened again right before sending.
 CLOSED_PHRASES = ("no longer accepting applications", "this job has expired", "job has expired",
                   "this job is no longer available", "job is no longer available",
-                  "position has been filled", "this job is closed", "job posting has expired")
+                  "position has been filled", "this job is closed", "job posting has expired",
+                  # Greenhouse redirects closed postings to the board with this banner (Inizio, Oct 2026)
+                  "the job you are looking for is no longer open", "job you are looking for is no longer",
+                  # Lever / Workday / generic ATS wording
+                  "this position is no longer available", "this posting is no longer available",
+                  "this requisition is no longer", "the page you are looking for doesn't exist",
+                  "position is closed", "job is no longer open")
 
 
 def page_says_closed(text):
@@ -993,9 +999,19 @@ def main():
         to_check = [j for j in approved] + [j for j, _, _ in near_misses]
         if to_check:
             print(f"Re-checking {len(to_check)} link(s) before reporting...")
-            status = still_open([j.get("url") for j in to_check if j.get("url")])
-            closed = {j["id"] for j in to_check if status.get(j.get("url")) is False}
-            unknown = sum(1 for j in to_check if status.get(j.get("url")) is None)
+            # Handshake pages need a login and stay "open" after the employer closes the job, so a
+            # Handshake job is checked at the employer's own link when the deep scraper found one.
+            def link_for(j):
+                if j.get("source") == "Handshake":
+                    return j.get("external_url")
+                return j.get("url")
+            unverifiable = [j for j in to_check if not link_for(j)]
+            status = still_open([link_for(j) for j in to_check if link_for(j)])
+            closed = {j["id"] for j in to_check if link_for(j) and status.get(link_for(j)) is False}
+            unknown = sum(1 for j in to_check if link_for(j) and status.get(link_for(j)) is None)
+            if unverifiable:
+                print(f"   ? {len(unverifiable)} Handshake job(s) have no employer link to check; "
+                      f"Handshake itself can't confirm they're still open.")
             if closed:
                 for j in to_check:
                     if j["id"] in closed:

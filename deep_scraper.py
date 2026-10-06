@@ -21,6 +21,24 @@ async def page_text(page, min_chars=1500, max_wait_ms=10000):
     return text
 
 
+async def external_apply_url(page):
+    """Many Handshake postings only point to the employer's own application page. Handshake keeps
+    showing them as open after the employer closes the job, so the employer's link is the one worth
+    checking. Best effort: an http(s) link off Handshake whose text or label mentions applying."""
+    try:
+        links = await page.locator("a[href^='http']").all()
+        for a in links:
+            href = await a.get_attribute("href") or ""
+            if "joinhandshake.com" in href:
+                continue
+            label = ((await a.inner_text()) or "") + " " + ((await a.get_attribute("aria-label")) or "")
+            if "apply" in label.lower():
+                return href
+    except Exception:
+        pass
+    return None
+
+
 def keep_unscraped(job, results, why):
     """A job that couldn't be read stays in the batch with an empty description, so the
     pipeline logs it as a retry and tries again next run instead of silently dropping it."""
@@ -76,8 +94,10 @@ async def scrape_deep_links():
                     # 12k keeps the tail of long postings, where qualifications and
                     # years-of-experience requirements usually live.
                     job['full_description'] = text[:12000]
+                    job['external_url'] = await external_apply_url(page_hs)
                     deep_results.append(job)
-                    print(f"   [+] Scraped: {job.get('title', 'Handshake Job')} ({len(text):,} chars)")
+                    ext = " | employer link found" if job['external_url'] else ""
+                    print(f"   [+] Scraped: {job.get('title', 'Handshake Job')} ({len(text):,} chars){ext}")
                 except Exception as e:
                     print(f"   [-] Failed to load Handshake job: {e}")
                     keep_unscraped(job, deep_results, f"load failed: {e}")
