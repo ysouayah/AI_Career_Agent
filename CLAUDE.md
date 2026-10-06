@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # AI Career Agent
 
 Autonomous job-search pipeline for Youssef Souayah (BU, Data Science + Political Science, graduating
@@ -16,8 +20,42 @@ resume, and emails a report plus tailored application packages.
 6. Report (`FINAL_STRATEGY.md`, emailed) and packages via `auto_fulfiller.py`
 7. Run log: `agent_log.csv` + `postings.jsonl`; `update_tracker.py` imports into the local tracker
 
-Config lives in `user_config.json` (candidate facts, hard vetos, report settings). Code changes the
-rules fingerprint, which re-evaluates previously rejected jobs on the next run.
+Config lives in `user_config.json` (candidate facts, hard vetos, report settings).
+
+Phases are subprocesses that hand off through gitignored JSON files in the repo root:
+`*_jobs.json` → `sifted_jobs.json` → `deep_jobs.json` → `approved_jobs.json` and
+`near_miss_jobs.json` (read by `auto_fulfiller.py`). `handshake_status.json` carries the Handshake
+warning into the report. A phase run on its own uses whatever the previous run left in those files.
+
+Jobs get an integer `id` before any model call; models return ids only and never copy a URL.
+
+## Commands
+There is no test suite or linter; `python -m py_compile <file>` is the check.
+
+```bash
+pip install -r requirements.txt && python -m playwright install chromium   # Python 3.11+ (tomllib); CI uses 3.12
+python run_everything.py                    # full pipeline
+python handshake_extractor.py               # any phase script runs on its own the same way
+python auto_fulfiller.py                    # packages for approved_jobs.json
+python auto_fulfiller.py --near-miss N1 N3  # or `all`; writes near_miss_packages/, marks them packaged
+python handshake_auth.py                    # refresh Handshake session (opens a browser; manual login)
+python update_tracker.py                    # agent_log.csv -> agent_tracker.xlsx (needs openpyxl, not in requirements.txt)
+```
+
+- Secrets locally: `.streamlit/secrets.toml` with `GEMINI_API_KEY`, `EMAIL_USER`, `EMAIL_PASS`; every
+  script loads that path into the environment. In CI the env vars do the work.
+- A full local run is not a dry run: it writes `memory_bank.db`, appends to `agent_log.csv` and
+  `postings.jsonl`, wipes `application_packages/`, and emails the report if `EMAIL_USER`/`EMAIL_PASS`
+  are set. Ask before running it; prefer exercising single functions on the real case.
+- The model name is `MODEL` in `run_everything.py` but is hardcoded separately in
+  `auto_fulfiller.py` and `brainstormer.py`.
+
+## Memory and the rules fingerprint (database_manager.py)
+- `packaged` URLs never resurface. `rejected` URLs are skipped for 21 days (`COOLDOWN_DAYS`) or until
+  the rules version changes. `seen` was never evaluated and is always eligible.
+- The rules version is a hash of the source of `run_everything.py` plus `candidate_facts` and
+  `hard_vetos`. Any edit to that file, even a comment, releases every rejection on the next run;
+  edits to other scripts or to other config sections release nothing.
 
 ## Design rules (each came from a real failure; don't undo them)
 - **Hard rules fire only on evidence.** Every disqualifier needs a quote that appears verbatim in the
@@ -53,6 +91,15 @@ rules fingerprint, which re-evaluates previously rejected jobs on the next run.
   `credentials.json`, `agent_tracker.xlsx` (local only), anything in `.gitignore`.
 - Bot-owned, updated by the Monday workflow: `memory_bank.db`, `agent_log.csv`, `postings.jsonl`.
   Don't edit them by hand.
+
+- `.gitignore` has a blanket `*.json`; a new JSON file that should be tracked needs `git add -f`.
+
+## Not part of the Monday pipeline
+`app.py` (old Streamlit front end; its default "wipe memory" option deletes `memory_bank.db`),
+`handshake_scraper.py`, `inbox_tracker.py`, `target_queries.json`, `preferences.txt`, `cron_log.txt`.
+`README.md` describes that older setup (`resume.pdf`, `preferences.txt`, `google-generativeai`) and
+is out of date. `brainstormer.py` still reads `resume.pdf`, which isn't in the repo, so it works
+from `user_config.json` alone; grading and packages use `master_resume.md`.
 
 ## Git workflow
 - The GitHub bot commits after every run, so always start with `git pull --rebase --autostash`.
