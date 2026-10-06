@@ -303,7 +303,7 @@ def title_tech_missing(tech, title, candidate_text):
     if not isinstance(tech, str) or not _norm(tech):
         return False
     t = f" {_norm(tech)} "
-    return t in f" {_norm(title)} " and t not in f" {_norm(candidate_text)} "
+    return t in f" {_norm(title)} " and t not in f" {_norm(experience_text(candidate_text))} "
 
 
 # ---- Fix: duplicate postings --------------------------------------------------------------
@@ -319,6 +319,18 @@ def _shingles(text, n=5):
     return {" ".join(words[i:i + n]) for i in range(max(len(words) - n + 1, 1))}
 
 
+# Companies like Veeva post several genuinely different roles that share ~90% boilerplate and
+# differ in one paragraph (Analytics vs. Business Consulting, Oct 2026). So a near-match only
+# counts as a duplicate when the titles agree too -- one title's words contain the other's, as
+# with reposts ("ML Engineer, New Grad" vs "ML Engineer, Applied AI -- New Grad"). Postings with
+# different titles must be almost word-for-word identical.
+DIFFERENT_TITLE_THRESHOLD = 0.97
+
+
+def _title_words(job):
+    return set(_norm(job.get("title") or "").split())
+
+
 def find_duplicates(jobs):
     """Returns {duplicate_id: kept_job} for jobs whose descriptions match an earlier job's."""
     kept, dupes = [], {}
@@ -327,8 +339,12 @@ def find_duplicates(jobs):
         if len(desc) < 500:
             continue
         sh = _shingles(desc)
+        tw = _title_words(job)
         for other, other_sh in kept:
-            if len(sh & other_sh) / max(len(sh | other_sh), 1) >= DUPLICATE_THRESHOLD:
+            sim = len(sh & other_sh) / max(len(sh | other_sh), 1)
+            ow = _title_words(other)
+            titles_agree = bool(tw and ow) and (tw <= ow or ow <= tw)
+            if sim >= (DUPLICATE_THRESHOLD if titles_agree else DIFFERENT_TITLE_THRESHOLD):
                 dupes[job.get("id")] = other
                 break
         else:
@@ -391,6 +407,13 @@ PREFERRED_WORDS = re.compile(
     re.IGNORECASE)
 
 
+def experience_text(candidate_text):
+    """The candidate's materials minus anything marked "(coursework)". Coursework exposure is real
+    and stays on the resume, but it doesn't satisfy a requirement for hands-on experience: on
+    Oct 5, "PyTorch (coursework)" let Motional's PyTorch must-have pass and the score went 72 -> 97."""
+    return "\n".join(l for l in candidate_text.split("\n") if "(coursework)" not in l.lower())
+
+
 def unmet_requirement(item, posting, candidate_text):
     """The grader names a required skill the candidate lacks, with the posting's exact words.
     Python confirms all of it before capping: the quote is really in the posting, it isn't
@@ -404,7 +427,7 @@ def unmet_requirement(item, posting, candidate_text):
         return None
     if PREFERRED_WORDS.search(quote):
         return None
-    candidate = f" {_norm(candidate_text)} "
+    candidate = f" {_norm(experience_text(candidate_text))} "
     if any(f" {_norm(skill)} " in candidate for skill in skills):
         return None
     return " / ".join(skills)
