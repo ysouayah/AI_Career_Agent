@@ -65,7 +65,8 @@
   "search_titles_excluded": [
     "Quantitative Analyst",
     "Machine Learning Engineer",
-    "Automation Specialist"
+    "Automation Specialist",
+    "Project Coordinator"
   ],
   "hard_vetos": {
     "accepted_employment_types": [
