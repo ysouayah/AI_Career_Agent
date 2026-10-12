@@ -360,6 +360,27 @@ def find_duplicates(jobs):
     return dupes
 
 
+# ---- Already applied ----------------------------------------------------------------------
+# applied_jobs in user_config.json lists roles applied to outside the pipeline (IQVIA's MASC
+# role came back as a near miss in Oct 2026, a month after the application). An entry matches
+# when the companies agree and every word of its title is in the posting's title, so a short
+# title survives rewording ("(MASC, Hybrid)" -> "(MASC)") without hiding the company's other roles.
+
+def _words(text):
+    return set(_norm(text).split())
+
+
+def applied_match(job, applied):
+    """The applied_jobs entry this card matches, or None."""
+    company, title = _words(job.get("company")), _words(job.get("title"))
+    for entry in applied:
+        ec, et = _words(entry.get("company")), _words(entry.get("title"))
+        # An entry with no title would be contained in every title and hide the whole company.
+        if ec and et and company and (ec <= company or company <= ec) and et <= title:
+            return entry
+    return None
+
+
 # ---- Fix: closed postings reaching the report --------------------------------------------------
 # The description is scraped hours before the email goes out, and may not include the board's
 # "closed" banner at all. So every job about to be reported is opened again right before sending.
@@ -800,6 +821,15 @@ def main():
         code + json.dumps([facts, vetos], sort_keys=True).encode()).hexdigest()[:10]
     print(f"Rules version: {rules_version}")
 
+    # Outside the fingerprint on purpose: marking a job as applied shouldn't release rejections.
+    applied_jobs, bad_applied = [], []
+    for entry in config.get("applied_jobs", []):
+        if isinstance(entry, dict) and _words(entry.get("company")) and _words(entry.get("title")):
+            applied_jobs.append(entry)
+        else:
+            bad_applied.append(entry)
+            print(f"WARNING: applied_jobs entry ignored (needs both company and title): {entry}")
+
     # --- PHASE 1 and 2: Brainstorm & Surface Scrape ---
     run_script("brainstormer.py")
 
@@ -821,8 +851,12 @@ def main():
     print(f"Total raw jobs scraped: {len(raw_jobs)}")
 
     fresh_jobs, seen_signatures, collapsed = [], set(), 0
+    already_applied = set()
     for job in raw_jobs:
         normalize_card(job)
+        if applied_match(job, applied_jobs):
+            already_applied.add(f"{job.get('company', '?')} — {job.get('title', '?')}")
+            continue
         company = (job.get("company") or "").strip()
         title = (job.get("title") or "").strip()
         signature = f"{company}_{title}".lower().strip("_")
@@ -834,6 +868,11 @@ def main():
             fresh_jobs.append(job)
             seen_signatures.add(signature)
 
+    already_applied = sorted(already_applied)
+    if already_applied:
+        print(f"Already applied: skipped {len(already_applied)} job(s).")
+        for name in already_applied:
+            print(f"   - {name}")
     print(f"Total FRESH jobs for evaluation: {len(fresh_jobs)}")
     if collapsed:
         print(f"Note: {collapsed} jobs had no recoverable company/title; deduplicated by URL instead.")
@@ -1212,6 +1251,9 @@ def main():
                             f"Run `python handshake_auth.py` and update the HANDSHAKE_STATE secret.\n")
     except (FileNotFoundError, json.JSONDecodeError):
         pass
+    if bad_applied:
+        sections.append(f"> ⚠️ **{len(bad_applied)} applied_jobs entry(ies) in user_config.json were ignored:** "
+                        f"each needs both a company and a title.\n")
     sections += [
                 writeups or "No high-scoring matches found in this batch."]
     if report["show_near_misses"] and near_misses:
@@ -1225,6 +1267,9 @@ def main():
     below = len(eligible) - len(approved) - len(near_misses) - len(closed_ids)
     if below > 0:
         sections.append(f"\n_{below} other eligible job(s) scored below {report['near_miss_floor']}._")
+    if already_applied:
+        sections.append(f"\n_Skipped {len(already_applied)} job(s) you already applied to: "
+                        f"{'; '.join(already_applied)}._")
     if report["show_filtered_jobs"] and filtered:
         lines = [f"- **{j.get('title', '?')}** — {j.get('company', '?')}: {'; '.join(r)}"
                  for j, r in filtered]

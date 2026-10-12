@@ -14,7 +14,8 @@ resume, and emails a report plus tailored application packages.
    always Boston)
 2. Extractors → `*_jobs.json`: `linkedin_extractor.py`, `indeed_extractor.py` (board-side entry-level +
    full-time filters), `handshake_extractor.py` (needs `handshake_state.json`; see Handshake below)
-3. Card stage in run_everything: normalize cards (Handshake has its own layout), location check,
+3. Card stage in run_everything: normalize cards (Handshake has its own layout), drop jobs listed
+   in `applied_jobs` (`applied_match`; named in one closing line of the report), location check,
    card job-type check, relevance ranking, cap to the top 80 for the sifter
 4. `deep_scraper.py` → full descriptions (`deep_jobs.json`); failures are kept with an empty
    description so they're retried, never silently dropped
@@ -22,7 +23,10 @@ resume, and emails a report plus tailored application packages.
 6. Report (`FINAL_STRATEGY.md`, emailed) and packages via `auto_fulfiller.py`
 7. Run log: `agent_log.csv` + `postings.jsonl`; `update_tracker.py` imports into the local tracker
 
-Config lives in `user_config.json` (candidate facts, hard vetos, report settings).
+Config lives in `user_config.json` (candidate facts, hard vetos, report settings, `applied_jobs`).
+An `applied_jobs` entry is a company plus a title; it matches a posting at that company whose title
+contains every word of the entry's title, so a short title hides every role it fits. The list is
+outside the rules fingerprint.
 
 Phases are subprocesses that hand off through gitignored JSON files in the repo root:
 `*_jobs.json` → `sifted_jobs.json` → `deep_jobs.json` → `approved_jobs.json` and
