@@ -126,7 +126,7 @@ def build_letter_pdf(filename, company, letter_text):
     )
     styles = getSampleStyleSheet()
     
-    name_style = ParagraphStyle('Name', parent=styles['Normal'], fontSize=16, fontName="Helvetica-Bold", textColor=colors.HexColor("#0F172A"), spaceAfter=2)
+    name_style = ParagraphStyle('Name', parent=styles['Normal'], fontSize=16, leading=20, fontName="Helvetica-Bold", textColor=colors.HexColor("#0F172A"), spaceAfter=4)
     contact_style = ParagraphStyle('Contact', parent=styles['Normal'], fontSize=10, fontName="Helvetica", textColor=colors.HexColor("#475569"), spaceAfter=18)
     date_style = ParagraphStyle('Date', parent=styles['Normal'], fontSize=10.5, fontName="Helvetica", textColor=colors.HexColor("#1E293B"), spaceAfter=14)
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10.5, leading=15.5, textColor=colors.HexColor("#1E293B"), spaceAfter=10, fontName="Helvetica")
