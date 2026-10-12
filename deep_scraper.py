@@ -21,6 +21,24 @@ async def page_text(page, min_chars=1500, max_wait_ms=10000):
     return text
 
 
+MORE_BUTTONS = """() => [...document.querySelectorAll('button.view-more-button')]
+    .filter(b => b.innerText.trim().toLowerCase() === 'more')"""
+
+
+async def expand_description(page):
+    """Handshake shows only the first lines of a description until "More" is clicked. Through
+    10/12 the collapsed text is what got saved, so the qualifications never reached the hard
+    rules (PORTAL: "Applicants must have completed their undergraduate training"). Clicked via
+    JS so an overlay can't block it. Returns (buttons clicked, buttons still showing "More")."""
+    try:
+        await page.wait_for_selector("button.view-more-button", timeout=3000)
+    except Exception:
+        return 0, 0     # short descriptions have no button
+    clicked = await page.evaluate(f"() => {{ const b = ({MORE_BUTTONS})(); b.forEach(e => e.click()); return b.length }}")
+    await page.wait_for_timeout(1000)
+    return clicked, await page.evaluate(f"() => ({MORE_BUTTONS})().length")
+
+
 async def external_apply_url(page):
     """Many Handshake postings only point to the employer's own application page. Handshake keeps
     showing them as open after the employer closes the job, so the employer's link is the one worth
@@ -77,6 +95,7 @@ async def scrape_deep_links():
             context_hs = await browser.new_context(storage_state=HANDSHAKE_STATE)
             page_hs = await context_hs.new_page()
             session_dead = False
+            still_collapsed = 0
 
             for job in handshake_jobs:
                 if session_dead:
@@ -90,6 +109,12 @@ async def scrape_deep_links():
                         session_dead = True
                         keep_unscraped(job, deep_results, "Handshake session expired")
                         continue
+                    await page_text(page_hs)
+                    try:
+                        expanded, collapsed = await expand_description(page_hs)
+                    except Exception as e:
+                        expanded, collapsed = 0, 1
+                        print(f"   [!] Could not expand the description ({e})")
                     text = await page_text(page_hs)
                     # 12k keeps the tail of long postings, where qualifications and
                     # years-of-experience requirements usually live.
@@ -98,10 +123,16 @@ async def scrape_deep_links():
                     deep_results.append(job)
                     ext = " | employer link found" if job['external_url'] else ""
                     print(f"   [+] Scraped: {job.get('title', 'Handshake Job')} ({len(text):,} chars){ext}")
+                    if collapsed:
+                        still_collapsed += 1
+                        print(f"   [!] Description still collapsed behind \"More\" -- the hard rules will "
+                              f"see only its first lines: {job.get('title', 'Handshake Job')}")
                 except Exception as e:
                     print(f"   [-] Failed to load Handshake job: {e}")
                     keep_unscraped(job, deep_results, f"load failed: {e}")
 
+            if still_collapsed:
+                print(f"   [!] {still_collapsed} Handshake description(s) could not be expanded.")
             await context_hs.close()
 
         # 2. Process LinkedIn/Indeed Jobs (Anonymous)

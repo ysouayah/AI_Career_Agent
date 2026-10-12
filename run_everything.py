@@ -241,6 +241,7 @@ Return ONE JSON object with exactly these keys:
 "requires_clearance_eligibility": true | false
     true if the hire must be able or eligible to obtain a clearance or public-trust check.
 "required_languages": list of languages OTHER than English that are REQUIRED, not preferred.
+    Copy a category as written ("another European language"); do not expand it into languages.
 "graduation_window_start": "YYYY-MM" or null
 "graduation_window_end": "YYYY-MM" or null
 "start_date": "immediate" | "YYYY-MM" | null
@@ -565,6 +566,46 @@ def degree_must_be_done(quote):
     return any(DEGREE_DONE.search(c) and not DEGREE_NOT_YET.search(c) for c in clauses)
 
 
+# PORTAL (10/12): "Professional working fluency in German, Japanese, or another European
+# language" was filtered for a French speaker. Alternatives joined by "or" need only one match,
+# and a category ("European language") is met by any spoken language in it. English never
+# satisfies a category: these lists are languages required in addition to it.
+LANGUAGE_GROUPS = {
+    "european": {"french", "german", "spanish", "italian", "portuguese", "dutch", "swedish", "danish",
+                 "norwegian", "finnish", "polish", "czech", "greek", "russian", "ukrainian", "romanian",
+                 "hungarian"},
+    "romance": {"french", "spanish", "italian", "portuguese", "romanian"},
+    "asian": {"mandarin", "chinese", "cantonese", "japanese", "korean", "hindi", "vietnamese", "thai",
+              "indonesian", "tagalog", "bengali", "urdu"},
+    "middle eastern": {"arabic", "hebrew", "farsi", "persian", "turkish"},
+    "african": {"arabic", "swahili", "amharic", "hausa", "yoruba", "zulu"},
+    "un": {"arabic", "chinese", "mandarin", "french", "russian", "spanish"},
+}
+ANY_LANGUAGE = re.compile(r"\b(second|foreign|additional|another|other)\s+language\b|\b(bi|multi)lingual\b")
+
+
+def language_met(item, spoken):
+    """True when a required language, or a category of languages, is one the candidate speaks."""
+    name = _norm(item)
+    others = {_norm(s) for s in spoken} - {"english"}
+    if name in others | {"english"}:
+        return True
+    for group, members in LANGUAGE_GROUPS.items():
+        if re.search(rf"\b{group}\b", name):
+            return bool(others & members)
+    return bool(others) and bool(ANY_LANGUAGE.search(name))
+
+
+def unmet_languages(required, quote, spoken):
+    """Languages the candidate lacks. When the posting's own words join one of them with "or",
+    the list is alternatives and speaking any one of them meets it."""
+    required = [r for r in (required or []) if isinstance(r, str) and _norm(r)]
+    missing = [r for r in required if not language_met(r, spoken)]
+    q = f" {_norm(quote if isinstance(quote, str) else '')} "
+    either = any(f" or {_norm(r)} " in q or f" {_norm(r)} or " in q for r in required)
+    return [] if either and len(missing) < len(required) else missing
+
+
 def apply_rules(f, facts, vetos, text):
     """Each hard rule is one explicit check on an extracted field, and fires ONLY when the model's
     supporting quote is verified against the posting text. Returns (reasons, unverified)."""
@@ -632,7 +673,7 @@ def apply_rules(f, facts, vetos, text):
           f.get("requires_active_clearance") and not facts["has_security_clearance"],
           "requires an active security clearance")
 
-    missing = [lang for lang in (f.get("required_languages") or []) if lang.lower() not in spoken]
+    missing = unmet_languages(f.get("required_languages"), evidence.get("required_languages"), spoken)
     check("required_languages", bool(missing), "requires " + ", ".join(missing))
 
     ws, we = f.get("graduation_window_start"), f.get("graduation_window_end")
