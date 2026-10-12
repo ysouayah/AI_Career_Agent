@@ -219,6 +219,11 @@ Return ONE JSON object with exactly these keys:
     internships or academic projects count toward it, return 0. null if none is stated.
 "degree_required": "none" | "bachelors" | "masters" | "phd" | null
     The minimum degree REQUIRED. A degree that is only preferred does not count.
+"degree_already_completed": true | false
+    true only if the posting says applicants must have ALREADY FINISHED the degree -- e.g.
+    "Applicants must have completed their undergraduate training", "must have already
+    graduated". A plain "Bachelor's degree required" is false: it does not say when. Also
+    false when current students, graduating seniors, or a future graduation date are accepted.
 "work_mode": "onsite" | "hybrid" | "remote" | "unknown"
 "work_locations": list of office locations named for this role, e.g. ["Boston, MA"]
 "any_location_in_massachusetts": true | false | null
@@ -230,7 +235,9 @@ Return ONE JSON object with exactly these keys:
 "remote_residency_restriction": string or null   e.g. "EU only", "United States", "California"
 "remote_residency_allows_massachusetts": true | false | null   (null if no restriction)
 "requires_active_clearance": true | false
-    true only if the hire must ALREADY HOLD an active security clearance at hire.
+    true only if the hire must ALREADY HOLD an active security clearance at hire. If being
+    able to obtain one is also accepted ("must possess or be able to obtain", "ability to
+    obtain and maintain", "eligible for"), this is false and the next key is true.
 "requires_clearance_eligibility": true | false
     true if the hire must be able or eligible to obtain a clearance or public-trust check.
 "required_languages": list of languages OTHER than English that are REQUIRED, not preferred.
@@ -259,7 +266,7 @@ Return ONE JSON object with exactly these keys:
     For EVERY value that could disqualify a new graduate, add a key holding a SHORT VERBATIM
     QUOTE (under 25 words) copied exactly from the posting. Use these keys:
       employer_type, employment_type, min_years_required, degree_required,
-      relocation_required, work_location, remote_residency_restriction,
+      degree_already_completed, relocation_required, work_location, remote_residency_restriction,
       requires_active_clearance, required_languages, graduation_window, start_date,
       hiring_track, years_preferred
     For start_date, years_preferred, graduation_window, and hiring_track (campus_cohort
@@ -523,6 +530,41 @@ def has_timing_evidence(quote):
     return isinstance(quote, str) and bool(TIMING_EVIDENCE.search(APPLICATION_PHRASES.sub(" ", quote)))
 
 
+# "You must possess or can obtain an active Secret clearance" (nou Systems, 10/12) was filtered as
+# an active-clearance requirement. Wording that accepts getting one later is eligibility. The
+# exception keeps "Active Secret Security Clearance with SCI Eligibility" (STR) a hard requirement.
+CLEARANCE_OBTAINABLE = re.compile(
+    r"\b(obtain\w*|eligib\w+|qualify\s+for|(able|ability|willing\w*)\s+to\s+(get|receive|acquire|undergo))\b",
+    re.IGNORECASE)
+CLEARANCE_HELD_PLUS = re.compile(
+    r"\b(active|current|existing)\b[^.;]{0,40}\bclearance\b[^.;]*\b(and|plus|with)\b[^.;]*"
+    r"\b(obtain\w*|eligib\w+|upgrade\w*)\b", re.IGNORECASE)
+
+
+def clearance_must_be_held(quote):
+    return isinstance(quote, str) and bool(
+        not CLEARANCE_OBTAINABLE.search(quote) or CLEARANCE_HELD_PLUS.search(quote))
+
+
+# "Applicants must have completed their undergraduate training" (PORTAL, 10/12) means the degree
+# is needed in hand. "Bachelor's degree required" says nothing about when, and wording that
+# admits students or a later date ("graduating seniors", "currently pursuing or have completed",
+# "by June 2027") is the opposite.
+DEGREE_DONE = re.compile(
+    r"\b(completed|already\s+(graduated|hold|have|earned)|have\s+(graduated|earned|received|been\s+awarded)|"
+    r"degree\s+in\s+hand|conferred)\b", re.IGNORECASE)
+DEGREE_NOT_YET = re.compile(
+    r"\b(graduating|seniors?|students?|pursuing|enrolled|currently|will|expected|anticipated|by|before|prior\s+to|class\s+of|20\d\d)\b",
+    re.IGNORECASE)
+
+
+def degree_must_be_done(quote):
+    """Judged clause by clause: PORTAL's sentence goes on "... and preference will be given to
+    applicants ... planning to complete such training by September 1, 2027"."""
+    clauses = re.split(r"\band\b|[;.]", quote) if isinstance(quote, str) else []
+    return any(DEGREE_DONE.search(c) and not DEGREE_NOT_YET.search(c) for c in clauses)
+
+
 def apply_rules(f, facts, vetos, text):
     """Each hard rule is one explicit check on an extracted field, and fires ONLY when the model's
     supporting quote is verified against the posting text. Returns (reasons, unverified)."""
@@ -562,6 +604,13 @@ def apply_rules(f, facts, vetos, text):
           degree in DEGREE_RANK and DEGREE_RANK[degree] > DEGREE_RANK.get(facts["highest_degree"], 1),
           f"requires a {degree} degree")
 
+    # A degree the candidate will hold by graduation is fine; one that must already be finished
+    # is not. Doesn't fire when the posting verifiably hires the candidate's graduating class.
+    check("degree_already_completed",
+          f.get("degree_already_completed") and degree_must_be_done(evidence.get("degree_already_completed"))
+          and not built_for_class(f, text, grad),
+          f"requires an already-completed degree (you graduate {grad})")
+
     # Moving to Massachusetts is not relocation for someone who already lives there.
     check("relocation_required",
           f.get("relocation_required") and not facts["can_relocate"] and in_ma is not True,
@@ -576,6 +625,9 @@ def apply_rules(f, facts, vetos, text):
 
     # Only an ALREADY-HELD clearance disqualifies. Eligibility-to-obtain is normal for entry-level
     # government-contractor roles and is left for the candidate to judge.
+    if f.get("requires_active_clearance") and not clearance_must_be_held(evidence.get("requires_active_clearance")):
+        f["requires_active_clearance"] = False
+        f["requires_clearance_eligibility"] = True
     check("requires_active_clearance",
           f.get("requires_active_clearance") and not facts["has_security_clearance"],
           "requires an active security clearance")
