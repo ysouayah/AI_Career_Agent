@@ -84,6 +84,28 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
   isn't in it. `ground_resume()` strips unsourced filler, restores dropped metrics, flags new numbers.
 - Entries stay in reverse-chronological order; output must be one page.
 - Cover letters open "Dear Hiring Team", state availability once, never self-grade.
+- **Selection is by id.** Every master entry (E#), bullet (B#) and skills line (S#) is numbered.
+  `plan_selection` has the model sort entries into core / supporting / off_target for the role and
+  rank bullets; code decides what is kept. Off-target entries are left out while the rest still
+  fills a page. The model rewords only the selected bullets and must keep their tags; a bullet that
+  can't be traced back to a master bullet is dropped.
+- **One page is enforced in code** (`fit_resume_to_one_page`): the lowest-ranked bullet is removed
+  and the PDF re-measured until it fits. No model in that loop. Pinned entries (below) give way
+  last, but the page limit outranks them.
+- **What the posting asks for** (`read_posting_asks`): contact details to put on the resume, things
+  to state in the letter, and kinds of experience it values, each with a quote that must be in the
+  posting. Asked-for experience pins the matching entry (CRA: "research apprenticeship" → Research
+  Assistant). The contact line is built in code: "Boston, MA" is added when an address is asked
+  for. There is no phone number on file by Youssef's choice (the repo is public); a posting that
+  asks for one gets a note, never a number.
+- A skills line of tools is dropped when the posting names none of its tools or its label
+  (`unnamed_tool_lines`); spoken languages and certifications always stay.
+- Letters answer each ask in a sentence that is then checked. Location comes from
+  `candidate_facts.location`; a practice or team preference is chosen by the model from the
+  options the posting lists, and the choice is reported.
+- **Package notes:** anything to check before sending (truncated description, missing contact
+  detail, unanswered ask, model-chosen practice) is appended to `FINAL_STRATEGY.md` under
+  "Package notes", so it reaches the email.
 
 ## Handshake
 - Session: `handshake_auth.py` (manual BU login + Duo) writes `handshake_state.json` and
