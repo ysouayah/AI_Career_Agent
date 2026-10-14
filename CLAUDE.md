@@ -11,16 +11,23 @@ resume, and emails a report plus tailored application packages.
 ## Pipeline (run_everything.py orchestrates; each phase is a separate script)
 1. `brainstormer.py` → `search_targets.json` (titles = `search_titles_core` from the config plus at
    most 4 model titles drawn from the resume, minus `search_titles_excluded`; first location is
-   always Boston)
+   always Boston); `internship_titles` = `search_titles_internship` copied as is
 2. Extractors → `*_jobs.json`: `linkedin_extractor.py`, `indeed_extractor.py` (board-side entry-level +
-   full-time filters), `handshake_extractor.py` (needs `handshake_state.json`; see Handshake below)
+   full-time filters), `handshake_extractor.py` (needs `handshake_state.json`; see Handshake below).
+   Each then runs `internship_titles` as a second, 2-page pass (board internship filter) and tags
+   those cards `"track": "internship"`
 3. Card stage in run_everything: normalize cards (Handshake has its own layout), drop jobs listed
    in `applied_jobs` (`applied_match`; named in one closing line of the report), location check,
-   card job-type check, relevance ranking, cap to the top 80 for the sifter
+   card job-type check, relevance ranking, cap to the top 80 for the sifter. Internship cards
+   (tagged, or "Internship" on a Handshake card) split off first into their own pool: summer/fall
+   cards dropped (`card_season_ok`), top 15 by relevance, no Sifter
 4. `deep_scraper.py` → full descriptions (`deep_jobs.json`); failures are kept with an empty
    description so they're retried, never silently dropped
 5. Extraction + hard rules (`apply_rules`), grading, caps, duplicate check, closed-posting check
-6. Report (`FINAL_STRATEGY.md`, emailed) and packages via `auto_fulfiller.py`
+   Internship-pool jobs: an extra `INTERN_PROMPT` call, `apply_rules(track="internship")`, then
+   `intern_rules`, then their own scoring call (70+ listed). The full-time grader is not involved
+6. Report (`FINAL_STRATEGY.md`, emailed) and packages via `auto_fulfiller.py` (approved jobs plus
+   listed internships from `internship_jobs.json`, labelled `Intern1…`)
 7. Run log: `agent_log.csv` + `postings.jsonl`; `update_tracker.py` imports into the local tracker
 
 Config lives in `user_config.json` (candidate facts, hard vetos, report settings, `applied_jobs`).
@@ -30,7 +37,7 @@ outside the rules fingerprint.
 
 Phases are subprocesses that hand off through gitignored JSON files in the repo root:
 `*_jobs.json` → `sifted_jobs.json` → `deep_jobs.json` → `approved_jobs.json` and
-`near_miss_jobs.json` (read by `auto_fulfiller.py`). `handshake_status.json` carries the Handshake
+`near_miss_jobs.json` and `internship_jobs.json` (read by `auto_fulfiller.py`). `handshake_status.json` carries the Handshake
 warning into the report. A phase run on its own uses whatever the previous run left in those files.
 
 Jobs get an integer `id` before any model call; models return ids only and never copy a URL.
@@ -76,6 +83,14 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
   log and the report. A silent empty result is a bug.
 - **Duplicates must agree on title.** Near-identical text with different titles is a different role
   (Veeva shares boilerplate across tracks); different titles need ≥97% identical text.
+- **Spring internships are a narrow, separate track.** One qualifies only on positive, quoted
+  evidence: it runs in spring (any year named must be 2027; no year shows "year not stated"), and
+  the posting says it can lead to full-time work (`has_conversion_evidence`: a 40-hour week or
+  "recent grads welcome" is not a path; "not eligible for conversion" is rejected). Massachusetts
+  or remote, same as full-time. "Must return to school after" is filtered. A job an internship
+  search found that is really full-time is left out of memory, so it never goes on cooldown. Report
+  section: "Spring internships with a path to full-time"; letters state the spring internship and
+  graduation, never the September date.
 - **Closed postings:** check the employer's own link. Handshake keeps listings open after the
   employer closes them, so Handshake jobs are checked at `external_url` when one was found.
 

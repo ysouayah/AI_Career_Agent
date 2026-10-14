@@ -8,6 +8,10 @@ from playwright_stealth import Stealth
 # LinkedIn's own filters: f_JT=F full-time, f_E=2 entry level. Without them most results were
 # 3-7-year roles that the rules then threw away, crowding real matches out of the top 80.
 LINKEDIN_FILTERS = "&f_JT=F&f_E=2"
+# Spring-internship track: f_JT=I internships only, fewer pages. Cards are tagged so the card
+# stage routes them to their own pool and they never displace a full-time job.
+LINKEDIN_INTERN_FILTERS = "&f_JT=I"
+MAX_INTERN_PAGES = 2
 
 async def scrape_linkedin():
     print("--- INITIATING LINKEDIN EXTRACTION ---")
@@ -17,6 +21,7 @@ async def scrape_linkedin():
         with open("search_targets.json", "r") as f:
             data = json.load(f)
             titles = data.get("titles")
+            intern_titles = data.get("internship_titles") or []
             locations = data.get("locations", ["United States"])
             
         if not titles or len(titles) == 0:
@@ -47,17 +52,19 @@ async def scrape_linkedin():
         all_jobs_list = []
         print(f"Loaded {len(titles)} target titles. Starting LinkedIn scrape with {MAX_PAGES}-page depth limit...")
 
-        # 3. Loop through every title the AI generated
-        for title in titles:
+        # 3. Loop through every title: the full-time searches, then the internship searches
+        searches = ([(t, LINKEDIN_FILTERS, MAX_PAGES, None) for t in titles]
+                    + [(t, LINKEDIN_INTERN_FILTERS, MAX_INTERN_PAGES, "internship") for t in intern_titles])
+        for title, filters, max_pages, track in searches:
             encoded_query = urllib.parse.quote(title)
-            print(f"\n-> Searching: {title}")
+            print(f"\n-> Searching: {title}" + (" (internships)" if track else ""))
             
             # --- PAGINATION LOOP START ---
-            for page_num in range(0, MAX_PAGES):
+            for page_num in range(0, max_pages):
                 # LinkedIn increments by 25 (Page 1 = 0, Page 2 = 25, Page 3 = 50...)
                 start_param = page_num * 25
                 target_url = (f"https://www.linkedin.com/jobs/search?keywords={encoded_query}"
-                              f"&location={encoded_location}{LINKEDIN_FILTERS}&start={start_param}")
+                              f"&location={encoded_location}{filters}&start={start_param}")
                 
                 print(f"   [Scraping Page {page_num + 1}]")
                 
@@ -86,12 +93,15 @@ async def scrape_linkedin():
                             if text.strip() and clean_url:
                                 lines = [line.strip() for line in text.split('\n') if line.strip()]
                                 if len(lines) >= 2:
-                                    all_jobs_list.append({
+                                    job = {
                                         "query_matched": title,
                                         "raw_text": lines,
                                         "url": clean_url,
                                         "source": "LinkedIn"
-                                    })
+                                    }
+                                    if track:
+                                        job["track"] = track
+                                    all_jobs_list.append(job)
                                     
                 except Exception as page_error:
                     print(f"   !!! Error scanning page {page_num + 1}: {page_error} !!!")
@@ -99,7 +109,12 @@ async def scrape_linkedin():
             # --- PAGINATION LOOP END ---
         
         # Deduplicate jobs by URL
-        unique_jobs = list({job['url']: job for job in all_jobs_list}.values())
+        # A job found by a full-time search stays untagged even if an internship search finds it too.
+        by_url = {}
+        for job in all_jobs_list:
+            if job['url'] not in by_url or not job.get('track'):
+                by_url[job['url']] = job
+        unique_jobs = list(by_url.values())
         print(f"\n====================================")
         print(f"Success! Deep-extracted {len(unique_jobs)} total LinkedIn jobs.")
         print(f"====================================\n")

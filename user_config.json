@@ -68,6 +68,12 @@
     "Automation Specialist",
     "Project Coordinator"
   ],
+  "search_titles_internship": [
+    "Spring 2027 Intern",
+    "Data Science Intern",
+    "Data Analyst Intern",
+    "Policy Intern"
+  ],
   "hard_vetos": {
     "accepted_employment_types": [
       "full_time"

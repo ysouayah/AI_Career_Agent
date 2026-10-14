@@ -1122,6 +1122,13 @@ def build_package(client, job, label, output_dir, resume_text, notes=None):
     availability_rule = ("" if track == "campus_cohort" else
         f"- State once, plainly, that the candidate graduates in {GRADUATION} and is available "
         f"to start in {EARLIEST_START}.")
+    if job.get("track") == "internship":
+        # A spring internship starts before graduation; the September date would contradict it.
+        availability_rule = (
+            f"- This is an application for a Spring 2027 INTERNSHIP that the posting says can lead to "
+            f"a full-time role. State once, plainly, that the candidate is applying for the spring "
+            f"internship, graduates in {GRADUATION}, and hopes to grow it into the full-time role. "
+            f"Do not mention {EARLIEST_START} and do not state any weekly hours or part-time schedule.")
 
     master_doc = number_master(parse_resume(resume_text))
 
@@ -1289,6 +1296,7 @@ def build_package(client, job, label, output_dir, resume_text, notes=None):
 # 5. MAIN EXECUTION
 # ==========================================
 NEAR_MISS_FILE = "near_miss_jobs.json"
+INTERNSHIP_FILE = "internship_jobs.json"   # written by run_everything.py; packaged on the weekly run
 NEAR_MISS_DIR = "near_miss_packages"   # separate from application_packages, which the weekly run wipes
 
 
@@ -1378,10 +1386,18 @@ def build_application_packages(near_miss_requests=None):
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)
         os.makedirs(output_dir, exist_ok=True)
-        if not jobs:
-            print("   [-] No jobs cleared the grader. Skipping package generation.")
-            return
         labelled = [(f"Job{i+1}", j) for i, j in enumerate(jobs)]
+        # Spring internships with a path to full-time, listed in their own report section.
+        try:
+            with open(INTERNSHIP_FILE, "r") as f:
+                interns = json.load(f)
+        except FileNotFoundError:
+            interns = []
+        labelled += [(f"Intern{(j.get('intern_label') or f'I{i+1}')[1:]}", dict(j, track="internship"))
+                     for i, j in enumerate(interns)]
+        if not labelled:
+            print("   [-] No jobs cleared the grader and no internships were listed. Skipping package generation.")
+            return
 
     client = genai.Client()
     print(f"Drafting full upload-ready documents for {len(labelled)} roles...")

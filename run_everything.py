@@ -128,6 +128,32 @@ def card_type_ok(job, accepted):
     return any(names.get(a, a) in t for a in accepted)
 
 
+# Spring-internship track. Internship cards (tagged by the extractors' internship searches, or
+# labelled "Internship" on a Handshake card) leave the full-time pool here and go through their
+# own narrow checks; the full-time pool is exactly what it was before the track existed.
+INTERN_CAP = 15   # internship cards deep-scraped per run; they skip the Sifter
+
+def is_intern_card(job):
+    return job.get("track") == "internship" or "internship" in (job.get("card_job_type") or "").lower()
+
+
+CARD_SEASON = re.compile(r"\b(summer|fall|autumn)\b", re.I)
+CARD_DATES = re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\s*[–-]", re.I)
+MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug",
+                                       "sep", "oct", "nov", "dec"), start=1)}
+
+
+def card_season_ok(job):
+    """Summer and fall internships go before any model call, on the employer's own card text: a
+    title naming the season without spring, or a Handshake date range starting May-November
+    (John Hancock's "Summer Intern 2027" card reads "Internship∙May 31–Aug 11")."""
+    title = job.get("title") or ""
+    if CARD_SEASON.search(title) and not re.search(r"\bspring\b", title, re.I):
+        return False
+    m = CARD_DATES.search(job.get("card_job_type") or "")
+    return not (m and 5 <= MONTHS[m.group(1).lower()] <= 11)
+
+
 def normalize_card(job):
     """Extractors only populate raw_text; title/company/location live inside it."""
     if job.get("source") == "Handshake":
@@ -291,6 +317,47 @@ def extract_requirements(client, job):
     return fields if isinstance(fields, dict) else {}
 
 
+# Asked only of internship-track postings, on top of EXTRACTION_PROMPT (which full-time jobs keep
+# unchanged). Every value that qualifies an internship needs a quote, like every disqualifier.
+INTERN_PROMPT = """You read one internship posting: {title} at {company}.
+The page text may also contain unrelated sections ("Similar jobs", other listings). Ignore them.
+Report only what the posting states. Do not infer, guess, or evaluate any candidate.
+
+Return ONE JSON object with exactly these keys:
+
+"internship_term": "spring" | "summer" | "fall" | "year_round" | "unknown"
+    The season the internship RUNS. "spring" when the posting names spring ("Spring 2027",
+    "spring semester") or a start in January through April; a program running January through
+    August counts as spring. "unknown" when the posting doesn't say.
+"internship_start": "YYYY-MM" or null   only when a month is stated.
+"full_time_pathway": true | false
+    true only if the posting itself says the internship can lead to full-time or permanent
+    employment, e.g. "potential to convert to full-time", "return offer", "pathway to a
+    full-time role", "interns are considered for full-time positions after graduation".
+    Company growth, career development, mentorship, or "recent graduates welcome" are NOT a
+    pathway. A full-time SCHEDULE during the internship ("40 hours a week") is not one either.
+"requires_return_to_school": true | false
+    true only if applicants must still be enrolled AFTER the internship ends: "must be
+    returning to school after the internship", "at least one semester remaining".
+"evidence": object
+    A SHORT VERBATIM QUOTE (under 25 words) copied exactly from the posting for each of
+    internship_term, full_time_pathway, requires_return_to_school whenever its value is not
+    "unknown" or false. If you cannot quote text that supports a value, do not assert it.
+
+POSTING:
+<<<
+{description}
+>>>
+"""
+
+
+def extract_intern_terms(client, job):
+    prompt = INTERN_PROMPT.format(title=job.get("title", ""), company=job.get("company", ""),
+                                  description=job.get("full_description", ""))
+    fields = json.loads(strip_fences(call_model(client, prompt, json_mode=True, temperature=0.0)))
+    return fields if isinstance(fields, dict) else {}
+
+
 def _norm(text):
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
@@ -393,6 +460,14 @@ CLOSED_PHRASES = ("no longer accepting applications", "this job has expired", "j
                   "this position is no longer available", "this posting is no longer available",
                   "this requisition is no longer", "the page you are looking for doesn't exist",
                   "position is closed", "job is no longer open")
+
+
+def link_for(j):
+    """Handshake pages need a login and stay "open" after the employer closes the job, so a
+    Handshake job is checked at the employer's own link when the deep scraper found one."""
+    if j.get("source") == "Handshake":
+        return j.get("external_url")
+    return j.get("url")
 
 
 def page_says_closed(text):
@@ -627,9 +702,12 @@ def unmet_languages(required, quote, spoken):
     return [] if either and len(missing) < len(required) else missing
 
 
-def apply_rules(f, facts, vetos, text):
+def apply_rules(f, facts, vetos, text, track="full_time"):
     """Each hard rule is one explicit check on an extracted field, and fires ONLY when the model's
-    supporting quote is verified against the posting text. Returns (reasons, unverified)."""
+    supporting quote is verified against the posting text. Returns (reasons, unverified).
+    track="internship" skips the three checks that judge a post-graduation hire: employment type
+    (intern_rules decides that), start before graduation, and immediate hire."""
+    full_time = track == "full_time"
     evidence = f.get("evidence") or {}
     reasons, unverified = [], []
 
@@ -653,7 +731,7 @@ def apply_rules(f, facts, vetos, text):
 
     employment = f.get("employment_type")
     check("employment_type",
-          employment not in (None, "unknown") and employment not in vetos["accepted_employment_types"],
+          full_time and employment not in (None, "unknown") and employment not in vetos["accepted_employment_types"],
           f"{(employment or '').replace('_', ' ')} role")
 
     years = f.get("min_years_required")
@@ -707,7 +785,7 @@ def apply_rules(f, facts, vetos, text):
         f["start_date"] = None
     sd = f.get("start_date")
     check("start_date",
-          sd == "immediate" or (isinstance(sd, str) and bool(DATE.match(sd)) and sd < grad),
+          full_time and (sd == "immediate" or (isinstance(sd, str) and bool(DATE.match(sd)) and sd < grad)),
           f"start date {sd} is before graduation")
 
     # A seat being filled now will be gone long before a Spring graduate can start. Like every
@@ -718,10 +796,95 @@ def apply_rules(f, facts, vetos, text):
     if f.get("hiring_track") == "immediate_hire" and not has_timing_evidence(evidence.get("hiring_track")):
         f["hiring_track"] = "unclear"
     check("hiring_track",
-          vetos["filter_immediate_hires"] and f.get("hiring_track") == "immediate_hire",
+          full_time and vetos["filter_immediate_hires"] and f.get("hiring_track") == "immediate_hire",
           "immediate hire, not a new-grad cohort")
 
     return reasons, unverified
+
+
+# ---- Spring-internship track ----------------------------------------------------------------
+# An internship qualifies only on positive evidence: a verified quote that it runs in spring and
+# a verified quote that it can lead to full-time work. Like has_timing_evidence, the quote must
+# actually say so -- "recent graduates welcome" or a 40-hour week is not a path to a job.
+SPRING_EVIDENCE = re.compile(r"\b(spring|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?)\b", re.I)
+# Whole words only: "Data Converters" (Skyworks co-op, Oct 2026) is not a conversion.
+CONVERSION_STRONG = re.compile(
+    r"\b(return\s+offers?|convert(s|ed|ing)?|conversions?|offers?\s+of\s+(full[- ]?time\s+|permanent\s+)?employment|"
+    r"permanent\s+(role|position|employment|job|hire))\b", re.I)
+FULL_TIME_WORD = re.compile(r"\b(full[- ]?time|permanent|post[- ]?grad\w*|(after|upon)\s+graduation)\b", re.I)
+LATER_JOB = re.compile(r"\b(offers?|roles?|positions?|employment|jobs?|opportunit\w+|hir\w+|consider\w*|"
+                       r"path\w*|transition\w*|careers?|team\s+members?)\b", re.I)
+# "Not guaranteed" still describes a path; these say there isn't one.
+_WONT = r"(will\s+not|does\s+not|do\s+not|would\s+not|won['’]t|doesn['’]t|cannot|can\s?not)"
+CONVERSION_NEGATED = re.compile(
+    rf"\bineligible\b|\bnot\s+(be\s+)?eligible\b|\b{_WONT}\s+(lead|result|convert|be\s+(considered|converted|offered))\b|"
+    r"\bnot\s+an?\s+(full[- ]?time|permanent)\b|\bno\s+(possibility|opportunity|option)\b", re.I)
+RETURN_TO_SCHOOL = re.compile(
+    r"\b(return\w*\s+to\s+(school|campus|classes|(your\s+)?stud\w+)|semesters?\s+(remaining|left)|"
+    r"remaining\s+(semester|term|year)|continu\w+\s+(your\s+)?(studies|education|enrollment)\s+after)\b", re.I)
+
+
+def quote_parts_found(quote, text):
+    """quote_found, also accepting a quote the model stitched from sentences that are each verbatim
+    in the posting (Withum, Oct 2026: "Tax Spring Internship 2027. This internship begins in
+    January and ends in April." -- the title and a body sentence, quoted as one)."""
+    if not isinstance(quote, str):
+        return False
+    parts = [p for p in re.split(r"(?<=[.!?;])\s+", quote) if len(_norm(p)) >= 8]
+    return quote_found(quote, text) or (bool(parts) and all(quote_found(p, text) for p in parts))
+
+
+def stated_years(text):
+    """Four-digit years, plus the short form in titles like "Intern - Spring '27"."""
+    text = text or ""
+    return set(re.findall(r"\b20\d\d\b", text)) | {"20" + y for y in re.findall(r"['’](\d\d)\b", text)}
+
+
+def has_conversion_evidence(quote):
+    if not isinstance(quote, str) or CONVERSION_NEGATED.search(quote):
+        return False
+    return bool(CONVERSION_STRONG.search(quote) or (FULL_TIME_WORD.search(quote) and LATER_JOB.search(quote)))
+
+
+def intern_rules(i, f, facts, title, text):
+    """The three conditions of the internship track, after apply_rules(track="internship") has
+    checked the shared hard rules. Returns (reasons, info): reasons say why it doesn't qualify,
+    info holds the verified quotes for the report. info["not_internship"] marks a job the
+    internship search found that is really something else; it is left out of memory."""
+    ev, ev_f = i.get("evidence") or {}, f.get("evidence") or {}
+    q = lambda s: f'"{s.strip()[:140]}"'
+
+    emp = f.get("employment_type")
+    if emp in ("full_time", "contract", "temporary") and quote_found(ev_f.get("employment_type") or "", text):
+        return [f"not an internship ({emp.replace('_', ' ')}) — {q(ev_f['employment_type'])}"], {"not_internship": True}
+
+    reasons, info = [], {}
+    term, tq = i.get("internship_term"), ev.get("internship_term")
+    tq_ok = quote_parts_found(tq, text)
+    years = sorted(stated_years(f"{tq if tq_ok else ''} {title or ''}"))
+    if term in ("summer", "fall") and tq_ok:
+        reasons.append(f"{term} internship — {q(tq)}")
+    elif term == "year_round" and tq_ok:
+        reasons.append(f"year-round internship, not a spring term — {q(tq)}")
+    elif not (term == "spring" and tq_ok and SPRING_EVIDENCE.search(tq)):
+        reasons.append("no spring term stated in the posting")
+    elif years and "2027" not in years:
+        reasons.append(f"spring {', '.join(years)}, not 2027 — {q(tq)}")
+    else:
+        info["term_quote"] = tq.strip()[:140]
+        info["year_stated"] = bool(years)
+
+    pq = ev.get("full_time_pathway")
+    if i.get("full_time_pathway") and quote_parts_found(pq, text) and has_conversion_evidence(pq):
+        info["pathway_quote"] = pq.strip()[:140]
+    else:
+        reasons.append("no path to full-time stated in the posting")
+
+    rq = ev.get("requires_return_to_school")
+    if (i.get("requires_return_to_school") and isinstance(rq, str) and quote_found(rq, text)
+            and RETURN_TO_SCHOOL.search(rq)):
+        reasons.append(f"requires returning to school after the internship (you graduate {facts['graduation']}) — {q(rq)}")
+    return reasons, info
 
 
 TRACK_LABELS = {"campus_cohort": "🎓 Campus cohort", "immediate_hire": "⚡ Immediate hire",
@@ -786,7 +949,7 @@ def archive_postings(jobs, run_date, rules_version):
                 "rules_version": rules_version, "company": job.get("company"),
                 "title": job.get("title"), "location": job.get("location"),
                 "raw_text": job.get("raw_text"), "full_description": job.get("full_description"),
-                "requirements": job.get("requirements"),
+                "requirements": job.get("requirements"), "internship": job.get("internship"),
             }, ensure_ascii=False) + "\n")
             added += 1
     print(f"Archived {added} new posting(s) to {POSTINGS_ARCHIVE}.")
@@ -894,6 +1057,20 @@ def main():
         send_report()
         return
 
+    # Internship cards leave here for their own pool; what follows for the full-time pool is
+    # unchanged (card_type_ok removed these same Handshake internship cards before).
+    intern_pool = [j for j in fresh_jobs if is_intern_card(j)]
+    fresh_jobs = [j for j in fresh_jobs if not is_intern_card(j)]
+    before = len(intern_pool)
+    intern_pool = [j for j in intern_pool if card_season_ok(j)]
+    intern_card_dropped = before - len(intern_pool)
+    intern_pool.sort(key=relevance, reverse=True)
+    if len(intern_pool) > INTERN_CAP:
+        print(f"Capping internship cards to the {INTERN_CAP} most relevant of {len(intern_pool)}.")
+        intern_pool = intern_pool[:INTERN_CAP]
+    print(f"Internship track: {len(intern_pool)} card(s) to read; {intern_card_dropped} dropped as "
+          f"summer/fall on the card.")
+
     before = len(fresh_jobs)
     fresh_jobs = [j for j in fresh_jobs if card_type_ok(j, vetos["accepted_employment_types"])]
     if len(fresh_jobs) < before:
@@ -908,6 +1085,10 @@ def main():
     # LLMs mis-pair fields when transcribing large arrays.
     for i, j in enumerate(fresh_jobs):
         j["id"] = i
+    for i, j in enumerate(intern_pool, start=len(fresh_jobs)):
+        j["id"] = i
+        j["track"] = "internship"
+    intern_ids = {j["id"] for j in intern_pool}
 
     client = genai.Client()
 
@@ -955,11 +1136,13 @@ def main():
             print(f"Error parsing Sifter output: {e}")
             return
 
-    with open("sifted_jobs.json", "w") as f:
-        json.dump(sifted_jobs, f, indent=4)
     print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
     for j in sifted_jobs:
         print(f"   -> [{j['id']}] {j.get('company', '?')} | {(j.get('title') or '?')[:60]} | {j.get('location', '?')}")
+    for j in intern_pool:
+        print(f"   -> [{j['id']}] (internship) {j.get('company', '?')} | {(j.get('title') or '?')[:60]} | {j.get('location', '?')}")
+    with open("sifted_jobs.json", "w") as f:
+        json.dump(sifted_jobs + intern_pool, f, indent=4)
 
     # --- PHASE 5: The Deep Scrape ---
     run_script("deep_scraper.py")
@@ -972,7 +1155,9 @@ def main():
     # --- PHASE 6: Extraction + deterministic rules ---
     print("\n--- PHASE 6: EXTRACTING REQUIREMENTS & APPLYING RULES ---")
     eligible, filtered = [], []
+    intern_eligible = []
     retry_ids = set()   # transient failures: left unmarked so the next run tries again
+    unmarked_ids = set()   # found by an internship search but not an internship: no cooldown
     duplicate_of = find_duplicates(scraped)
     for job in scraped:
         if job.get("id") in duplicate_of:
@@ -990,12 +1175,31 @@ def main():
             continue
         try:
             fields = extract_requirements(client, job)
+            intern_fields = extract_intern_terms(client, job) if job.get("id") in intern_ids else None
         except Exception as e:
             print(f"   [!] Extraction failed for [{job.get('id')}]: {e}")
             filtered.append((job, ["requirements could not be extracted (will retry next run)"]))
             retry_ids.add(job.get("id"))
             continue
         job["requirements"] = fields
+        if intern_fields is not None:
+            job["internship"] = intern_fields
+            intern_reasons, info = intern_rules(intern_fields, fields, facts, job.get("title"), description)
+            job["internship_info"] = info
+            if info.get("not_internship"):
+                unmarked_ids.add(job.get("id"))
+                reasons, unverified = intern_reasons, []
+            else:
+                reasons, unverified = apply_rules(fields, facts, vetos, description, track="internship")
+                reasons = intern_reasons + reasons
+            if unverified:
+                print(f"   ? [{job.get('id')}] (internship) {(job.get('title') or '?')[:45]} -- unverified, "
+                      f"NOT applied: {'; '.join(unverified)}")
+            if reasons:
+                filtered.append((job, [f"[internship] {r}" for r in reasons]))
+            else:
+                intern_eligible.append(job)
+            continue
         reasons, unverified = apply_rules(fields, facts, vetos, description)
         if unverified:
             print(f"   ? [{job.get('id')}] {(job.get('title') or '?')[:45]} -- unverified, NOT applied: "
@@ -1005,7 +1209,8 @@ def main():
         else:
             eligible.append(job)
 
-    print(f"Rules kept {len(eligible)} of {len(scraped)}.")
+    print(f"Rules kept {len(eligible)} of {len(scraped)}"
+          + (f", plus {len(intern_eligible)} internship(s) for the spring track." if intern_ids else "."))
     for job, reasons in filtered:
         print(f"   x [{job.get('id')}] {job.get('company', '?')} | {(job.get('title') or '?')[:50]} -- {'; '.join(reasons)}")
 
@@ -1020,23 +1225,24 @@ def main():
     closed_ids = set()   # scored, then found closed at the pre-send link check
     writeups = ""
 
-    if eligible:
-        candidate_context = "--- MASTER RESUME ---\n"
-        if os.path.exists("master_resume.md"):
-            with open("master_resume.md", "r", encoding="utf-8") as f:
-                candidate_context += f.read()
-        elif os.path.exists("resume.pdf"):
-            candidate_context += extract_resume_text("resume.pdf")
-        else:
-            print("WARNING: no resume source found. Grading will be unreliable.")
-        if os.path.exists("transcript.pdf"):
-            candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n" + extract_resume_text("transcript.pdf")
-        rubric = config.get("industry_rubric", {})
-        candidate_context += (
-            f"\n\n--- INTERESTS ---\nPrimary: {', '.join(rubric.get('primary_focus', []))}\n"
-            f"Interdisciplinary: {', '.join(rubric.get('secondary_interdisciplinary_focus', []))}\n"
-            f"Preferred stack: {', '.join(rubric.get('preferred_tech_stack', []))}\n")
+    # Built up front: the internship track scores against it even when no full-time job survives.
+    candidate_context = "--- MASTER RESUME ---\n"
+    if os.path.exists("master_resume.md"):
+        with open("master_resume.md", "r", encoding="utf-8") as f:
+            candidate_context += f.read()
+    elif os.path.exists("resume.pdf"):
+        candidate_context += extract_resume_text("resume.pdf")
+    else:
+        print("WARNING: no resume source found. Grading will be unreliable.")
+    if os.path.exists("transcript.pdf"):
+        candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n" + extract_resume_text("transcript.pdf")
+    rubric = config.get("industry_rubric", {})
+    candidate_context += (
+        f"\n\n--- INTERESTS ---\nPrimary: {', '.join(rubric.get('primary_focus', []))}\n"
+        f"Interdisciplinary: {', '.join(rubric.get('secondary_interdisciplinary_focus', []))}\n"
+        f"Preferred stack: {', '.join(rubric.get('preferred_tech_stack', []))}\n")
 
+    if eligible:
         # The model never sees a URL, so it cannot pair a title with the wrong link.
         grader_jobs = [{"id": j["id"], "title": j.get("title"), "company": j.get("company"),
                         "location": j.get("location"), "requirements": j.get("requirements"),
@@ -1154,12 +1360,6 @@ def main():
         to_check = [j for j in approved] + [j for j, _, _ in near_misses]
         if to_check:
             print(f"Re-checking {len(to_check)} link(s) before reporting...")
-            # Handshake pages need a login and stay "open" after the employer closes the job, so a
-            # Handshake job is checked at the employer's own link when the deep scraper found one.
-            def link_for(j):
-                if j.get("source") == "Handshake":
-                    return j.get("external_url")
-                return j.get("url")
             unverifiable = [j for j in to_check if not link_for(j)]
             status = still_open([link_for(j) for j in to_check if link_for(j)])
             closed = {j["id"] for j in to_check if link_for(j) and status.get(link_for(j)) is False}
@@ -1228,6 +1428,95 @@ def main():
     else:
         print("No jobs survived the rules; skipping the grader.")
 
+    # --- PHASE 7b: Spring internships -- scored on their own; the full-time grader is untouched ---
+    intern_listed, intern_scores, intern_closed = [], {}, set()
+    if intern_eligible:
+        print(f"\n--- PHASE 7b: SCORING {len(intern_eligible)} SPRING INTERNSHIP(S) ---")
+        intern_by_id = {j["id"]: j for j in intern_eligible}
+        intern_prompt = f"""
+    You are an elite career strategist scoring job fit for one candidate.
+
+    Every job below is a SPRING 2027 INTERNSHIP that the posting says can lead to a full-time
+    role. Hard eligibility (season, location, conversion, experience, degree, languages) has
+    ALREADY been checked; do not re-litigate it. Score FIT from 0 to 100: how well the
+    candidate's actual skills, coursework, and experience match what the intern will do day to
+    day, and how well the full-time role it leads to fits the candidate's interests. Weigh the
+    candidate's policy and political-science background as seriously as the technical one.
+      90-100  The candidate's record covers the core of the work; a strong applicant.
+      85-89   Strong fit with one real gap.
+      70-84   Plausible stretch.
+      0-69    Weak fit, or work outside the candidate's interests.
+    TITLE TECHNOLOGY: if the title names a tool, platform, or language the candidate's
+    materials don't show, name it in "missing_title_tech" exactly as in the title; else null.
+    REQUIRED SKILLS: for each TECHNICAL skill the posting REQUIRES (not preferred, desired, a
+    plus, or a bonus) that the candidate's materials don't show, add {{"skills": [the skill plus
+    any alternatives the posting accepts], "quote": "the posting's exact words"}} to
+    "unmet_requirements".
+    CORE WORK: if what the intern will spend their days doing falls outside the candidate's
+    primary and interdisciplinary interests (see INTERESTS), describe it in a few words in
+    "core_work_outside_targets"; otherwise null.
+
+    CANDIDATE:
+    {candidate_context}
+
+    JOBS (JSON; each has an integer "id"):
+    {json.dumps([{"id": j["id"], "title": j.get("title"), "company": j.get("company"),
+                  "location": j.get("location"), "description": j.get("full_description")}
+                 for j in intern_eligible], indent=2)}
+
+    Return ONLY a JSON array with one object per job:
+    [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor",
+      "missing_title_tech": null, "unmet_requirements": [], "core_work_outside_targets": null}}]
+    """
+        try:
+            rows = json.loads(strip_fences(call_model(client, intern_prompt, json_mode=True, temperature=0.2)))
+            for row in rows:
+                if not (isinstance(row, dict) and row.get("id") in intern_by_id):
+                    continue
+                job = intern_by_id[row["id"]]
+                posting = job.get("full_description") or ""
+                score, reason = int(row.get("score", 0)), str(row.get("reason", "")).strip()
+                # The same evidence-checked caps as full-time jobs, minus the two about start timing.
+                tech = row.get("missing_title_tech")
+                if score > TITLE_TECH_CAP and title_tech_missing(tech, job.get("title") or "", candidate_context):
+                    reason = f"[capped from {score}: title names {tech.strip()}, not on resume] {reason}"
+                    score = TITLE_TECH_CAP
+                gaps = [g for g in (unmet_requirement(item, posting, candidate_context)
+                                    for item in (row.get("unmet_requirements") or [])) if g]
+                if gaps and score > UNMET_REQ_CAP:
+                    reason = f"[capped from {score}: requires {'; '.join(gaps)}, not on resume] {reason}"
+                    score = UNMET_REQ_CAP
+                pref = preferred_years(job.get("requirements") or {}, posting)
+                if pref and score > PREFERRED_EXP_CAP:
+                    reason = f"[capped from {score}: prefers {pref}+ years of experience] {reason}"
+                    score = PREFERRED_EXP_CAP
+                off_target = row.get("core_work_outside_targets")
+                if isinstance(off_target, str) and off_target.strip() and score > OFF_TARGET_CAP:
+                    reason = f"[capped from {score}: core work is {off_target.strip()}, outside your targets] {reason}"
+                    score = OFF_TARGET_CAP
+                intern_scores[row["id"]] = (score, reason)
+        except Exception as e:
+            print(f"Error parsing internship scores: {e}")
+        for jid, (score, reason) in sorted(intern_scores.items(), key=lambda kv: -kv[1][0]):
+            j = intern_by_id[jid]
+            print(f"   {score:>3} [{jid}] (internship) {(j.get('company') or '?')[:22]} | "
+                  f"{(j.get('title') or '?')[:45]} -- {reason[:90]}")
+            if score >= report["near_miss_floor"]:
+                intern_listed.append(j)
+        unscored = [j["id"] for j in intern_eligible if j["id"] not in intern_scores]
+        if unscored:
+            print(f"Warning: no score for internship(s) {unscored}; not listed.")
+
+        if intern_listed:
+            print(f"Re-checking {len(intern_listed)} internship link(s) before reporting...")
+            status = still_open([link_for(j) for j in intern_listed if link_for(j)])
+            intern_closed = {j["id"] for j in intern_listed if link_for(j) and status.get(link_for(j)) is False}
+            for j in intern_listed:
+                if j["id"] in intern_closed:
+                    filtered.append((j, ["[internship] closed before the report was sent"]))
+                    print(f"   x [{j['id']}] (internship) {j.get('company', '?')} | {(j.get('title') or '?')[:50]} -- closed")
+            intern_listed = [j for j in intern_listed if j["id"] not in intern_closed]
+
     # The explicit hand-off to the fulfiller. It reads this list rather than scanning the
     # report for URLs, so near-miss links in the email never trigger package generation.
     with open("approved_jobs.json", "w") as f:
@@ -1240,6 +1529,14 @@ def main():
                          for k, (j, sc, why) in enumerate(near_misses, start=1)]
     with open("near_miss_jobs.json", "w") as f:
         json.dump(near_miss_records, f, indent=4)
+
+    # Listed spring internships are packaged automatically, like approved jobs. Always rewritten.
+    intern_listed.sort(key=lambda j: -intern_scores[j["id"]][0])
+    intern_records = [dict(j, intern_label=f"I{k}", score=intern_scores[j["id"]][0],
+                           reason=intern_scores[j["id"]][1])
+                      for k, j in enumerate(intern_listed, start=1)]
+    with open("internship_jobs.json", "w") as f:
+        json.dump(intern_records, f, indent=4)
 
     # --- Report ---
     sections = ["# 🎯 Weekly AI Job Strategy: High-Probability Matches\n"]
@@ -1267,6 +1564,23 @@ def main():
     below = len(eligible) - len(approved) - len(near_misses) - len(closed_ids)
     if below > 0:
         sections.append(f"\n_{below} other eligible job(s) scored below {report['near_miss_floor']}._")
+    # Always shown, so an empty week says what was checked instead of saying nothing.
+    intern_lines = []
+    for r in intern_records:
+        info = r.get("internship_info") or {}
+        year = "" if info.get("year_stated") else " (year not stated)"
+        intern_lines.append(
+            f"- `{r['intern_label']}` **[{r.get('title', '?')}]({r.get('url', '')})** — {r.get('company', '?')}: "
+            f"{r['score']}/100. {r['reason']}\n  - Spring{year}: \"{info.get('term_quote', '')}\"\n"
+            f"  - Path to full-time: \"{info.get('pathway_quote', '')}\"")
+    intern_below = len(intern_eligible) - len(intern_records) - len(intern_closed)
+    if not intern_lines:
+        intern_lines.append(f"None this week: {len(intern_pool)} internship posting(s) read, "
+                            f"{intern_card_dropped} dropped as summer/fall on the card.")
+    elif intern_below > 0:
+        intern_lines.append(f"\n_{intern_below} other qualifying internship(s) scored below "
+                            f"{report['near_miss_floor']}._")
+    sections.append("\n---\n\n## Spring internships with a path to full-time\n\n" + "\n".join(intern_lines))
     if already_applied:
         sections.append(f"\n_Skipped {len(already_applied)} job(s) you already applied to: "
                         f"{'; '.join(already_applied)}._")
@@ -1279,11 +1593,12 @@ def main():
 
     # Record outcomes: approved jobs are packaged; everything else goes on the cooldown timer.
     approved_ids = {j["id"] for j in approved}
+    intern_listed_ids = {j["id"] for j in intern_listed}
     for job in scraped:
         url = job.get("url")
-        if not url or job.get("id") in retry_ids:
+        if not url or job.get("id") in retry_ids or job.get("id") in unmarked_ids:
             continue
-        if job.get("id") in approved_ids:
+        if job.get("id") in approved_ids or job.get("id") in intern_listed_ids:
             mark_job_packaged(url)
         else:
             mark_job_rejected(url, rules_version)
@@ -1302,12 +1617,17 @@ def main():
             score, reason = scores[jid]
             decision = ("approved" if jid in approved_ids else
                         "near_miss" if jid in near_ids else "below_floor")
+        elif jid in intern_scores:
+            score, reason = intern_scores[jid]
+            decision = "intern_qualified" if jid in intern_listed_ids else "intern_below_floor"
         else:
             decision = "unscored"
         log_rows.append({
             "run_date": run_date, "company": job.get("company") or "", "title": job.get("title") or "",
             "location": job.get("location") or "", "decision": decision, "score": score,
-            "reason": reason, "hiring_track": (job.get("requirements") or {}).get("hiring_track") or "",
+            "reason": reason,
+            "hiring_track": ("internship" if jid in intern_ids
+                             else (job.get("requirements") or {}).get("hiring_track") or ""),
             "rules_version": rules_version, "url": job.get("url") or "",
             "description_hash": description_hash(job),
         })
@@ -1315,7 +1635,8 @@ def main():
     archive_postings(scraped, run_date, rules_version)
 
     print(f"Grader outcome: {len(approved)} approved, {len(near_misses)} near-miss, "
-          f"{max(below, 0)} below {report['near_miss_floor']}, {len(filtered)} filtered by rules.")
+          f"{max(below, 0)} below {report['near_miss_floor']}, {len(filtered)} filtered by rules; "
+          f"{len(intern_listed)} spring internship(s) listed.")
 
     # --- PHASE 8: Auto-fulfillment ---
     # Always runs: it also clears last week's packages, so skipping it could attach stale PDFs.

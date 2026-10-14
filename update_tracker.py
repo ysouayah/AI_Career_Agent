@@ -31,9 +31,9 @@ def _key(run_date, company, title):
 
 
 def review_flag(row):
-    if row["decision"] in ("approved", "near_miss"):
+    if row["decision"] in ("approved", "near_miss", "intern_qualified"):
         return "Yes"
-    if row["decision"] in ("filtered", "below_floor") and row["url"]:
+    if row["decision"] in ("filtered", "below_floor", "intern_below_floor") and row["url"]:
         bucket = int(hashlib.sha1(row["url"].encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
         return "Sample" if bucket < SAMPLE_RATE else ""
     return ""

@@ -7,6 +7,9 @@ from playwright_stealth import Stealth
 
 # Indeed's own filters: full-time, entry level. Same reason as LinkedIn's.
 INDEED_FILTERS = "&jt=fulltime&sc=0kf%3Aexplvl%28ENTRY_LEVEL%29%3B"
+# Spring-internship track: internships only, fewer pages, cards tagged for their own pool.
+INDEED_INTERN_FILTERS = "&jt=internship"
+MAX_INTERN_PAGES = 2
 
 async def scrape_indeed():
     print("--- INITIATING INDEED EXTRACTION ---")
@@ -16,6 +19,7 @@ async def scrape_indeed():
         with open("search_targets.json", "r") as f:
             data = json.load(f)
             titles = data.get("titles")
+            intern_titles = data.get("internship_titles") or []
             locations = data.get("locations", ["United States"])
             
         if not titles or len(titles) == 0:
@@ -45,17 +49,19 @@ async def scrape_indeed():
         all_jobs_list = []
         print(f"Loaded {len(titles)} target titles. Starting Indeed scrape with {MAX_PAGES}-page depth limit...")
 
-        # 3. Loop through every AI-generated title
-        for title in titles:
+        # 3. Loop through every title: the full-time searches, then the internship searches
+        searches = ([(t, INDEED_FILTERS, MAX_PAGES, None) for t in titles]
+                    + [(t, INDEED_INTERN_FILTERS, MAX_INTERN_PAGES, "internship") for t in intern_titles])
+        for title, filters, max_pages, track in searches:
             encoded_query = urllib.parse.quote_plus(title)
-            print(f"\n-> Searching: {title}")
+            print(f"\n-> Searching: {title}" + (" (internships)" if track else ""))
             
             # --- PAGINATION LOOP START ---
-            for page_num in range(0, MAX_PAGES):
+            for page_num in range(0, max_pages):
                 # Indeed increments pages by 10 items (Page 1 = 0, Page 2 = 10, Page 3 = 20...)
                 start_param = page_num * 10
                 target_url = (f"https://www.indeed.com/jobs?q={encoded_query}&l={encoded_location}"
-                              f"{INDEED_FILTERS}&start={start_param}")
+                              f"{filters}&start={start_param}")
                 
                 print(f"   [Scraping Page {page_num + 1}]")
                 
@@ -85,12 +91,15 @@ async def scrape_indeed():
                             if text.strip() and clean_url:
                                 lines = [line.strip() for line in text.split('\n') if line.strip()]
                                 if len(lines) >= 2:
-                                    all_jobs_list.append({
+                                    job = {
                                         "query_matched": title,
                                         "raw_text": lines,
                                         "url": clean_url,
                                         "source": "Indeed"
-                                    })
+                                    }
+                                    if track:
+                                        job["track"] = track
+                                    all_jobs_list.append(job)
                                     
                 except Exception as page_error:
                     print(f"   !!! Error scanning page {page_num + 1}: {page_error} !!!")
@@ -98,7 +107,12 @@ async def scrape_indeed():
             # --- PAGINATION LOOP END ---
         
         # Deduplicate results by URL
-        unique_jobs = list({job['url']: job for job in all_jobs_list}.values())
+        # A job found by a full-time search stays untagged even if an internship search finds it too.
+        by_url = {}
+        for job in all_jobs_list:
+            if job['url'] not in by_url or not job.get('track'):
+                by_url[job['url']] = job
+        unique_jobs = list(by_url.values())
         print(f"\n====================================")
         print(f"Success! Deep-extracted {len(unique_jobs)} total Indeed jobs.")
         print(f"====================================\n")

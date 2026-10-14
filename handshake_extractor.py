@@ -12,6 +12,9 @@ STATE_FILE = "handshake_state.json"
 OUTPUT_FILE = "handshake_jobs.json"
 STATUS_FILE = "handshake_status.json"   # read by run_everything.py to warn in the report
 MAX_PAGES = 5
+# Spring-internship track: Handshake has no job-type filter in the URL, so these are plain
+# searches whose cards are tagged; the card's own "Internship" label also routes a job.
+MAX_INTERN_PAGES = 2
 
 # Handshake has used both /jobs/<id> and /job-search/<id>; match either, by numeric id.
 JOB_LINK = re.compile(r"/(?:jobs|job-search)/(\d+)")
@@ -72,6 +75,7 @@ async def extract_job_data():
         with open("search_targets.json", "r") as f:
             data = json.load(f)
         titles = data.get("titles")
+        intern_titles = data.get("internship_titles") or []
         locations = data.get("locations", ["United States"])
         if not titles:
             print("Error: 'titles' key is missing or empty in search_targets.json.")
@@ -98,11 +102,13 @@ async def extract_job_data():
         target_location = locations[0] if locations else ""
         print(f"Loaded {len(titles)} target titles. Up to {MAX_PAGES} pages per query.")
 
-        for q_index, title in enumerate(titles):
+        searches = ([(t, MAX_PAGES, None) for t in titles]
+                    + [(t, MAX_INTERN_PAGES, "internship") for t in intern_titles])
+        for q_index, (title, max_pages, track) in enumerate(searches):
             query = urllib.parse.quote(title)
             loc = f"&location={urllib.parse.quote(target_location)}" if target_location else ""
             url = f"https://bu.joinhandshake.com/job-search?query={query}{loc}"
-            print(f"\n-> Searching: {title}")
+            print(f"\n-> Searching: {title}" + (" (internships)" if track else ""))
             found_for_query = 0
             try:
                 # networkidle rarely fires on Handshake (analytics keep the network busy), so each
@@ -116,7 +122,7 @@ async def extract_job_data():
                     break
 
                 origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlparse(page.url))
-                for page_num in range(1, MAX_PAGES + 1):
+                for page_num in range(1, max_pages + 1):
                     try:
                         try:
                             await page.wait_for_selector(JOB_LINKS, timeout=20000)
@@ -142,9 +148,11 @@ async def extract_job_data():
                         if len(lines) >= 2 and jid not in jobs_by_id:
                             jobs_by_id[jid] = {"query_matched": title, "raw_text": lines,
                                                "url": canonical_url(origin, jid), "source": "Handshake"}
+                            if track:
+                                jobs_by_id[jid]["track"] = track
                             found_for_query += 1
 
-                    if page_num == MAX_PAGES:
+                    if page_num == max_pages:
                         break
                     if not await go_to_next_page(page):
                         break

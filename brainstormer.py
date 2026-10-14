@@ -138,7 +138,13 @@ def main():
             if home:
                 others = [l for l in targets.get("locations", []) if l.lower() != home.lower()]
                 targets["locations"] = [home] + others
-                
+
+            # The spring-internship track searches its own short list, copied as is: the model's
+            # titles stay full-time only.
+            targets["internship_titles"] = [t.strip() for t in config.get("search_titles_internship", [])
+                                             if str(t).strip()]
+            print(f"[Brainstormer] >> Internship titles: {targets['internship_titles']}")
+
             with open("search_targets.json", "w") as f:
                 json.dump(targets, f, indent=4)
                 
