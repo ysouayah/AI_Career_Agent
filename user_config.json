@@ -11,7 +11,8 @@
     ],
     "location": "Boston, MA",
     "can_relocate": false,
-    "has_security_clearance": false
+    "has_security_clearance": false,
+    "us_citizen": true
   },
   "target_timelines": {
     "pathway_a": {

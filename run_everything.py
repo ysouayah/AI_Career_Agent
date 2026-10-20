@@ -79,6 +79,7 @@ def load_config():
     facts.setdefault("spoken_languages", ["english"])
     facts.setdefault("can_relocate", False)
     facts.setdefault("has_security_clearance", False)
+    facts.setdefault("us_citizen", False)
     vetos = config.get("hard_vetos", {})
     vetos.setdefault("accepted_employment_types", ["full_time"])
     vetos.setdefault("max_required_years_experience", 0)
@@ -643,6 +644,17 @@ def clearance_must_be_held(quote):
         not CLEARANCE_OBTAINABLE.search(quote) or CLEARANCE_HELD_PLUS.search(quote))
 
 
+# nou Systems (10/19) passed the rules as clearance-eligible, then the grader scored it 75 for "an
+# active Secret clearance is unmet". The grader is told when obtaining one is enough and the
+# candidate can. An already-held requirement gets no status and is never called met.
+def clearance_status(req, facts):
+    if (not req.get("requires_active_clearance") and req.get("requires_clearance_eligibility")
+            and facts.get("us_citizen")):
+        return ("met: the posting accepts obtaining a clearance and the candidate is a U.S. "
+                "citizen who can obtain one")
+    return None
+
+
 # "Applicants must have completed their undergraduate training" (PORTAL, 10/12) means the degree
 # is needed in hand. "Bachelor's degree required" says nothing about when, and wording that
 # admits students or a later date ("graduating seniors", "currently pursuing or have completed",
@@ -964,6 +976,64 @@ def append_run_log(rows):
         writer.writerows(rows)
 
 
+# The grader's scoring prompt; filled with .format, so literal braces are doubled.
+SCORE_PROMPT = """
+    You are an elite career strategist scoring job fit for one candidate.
+
+    Every job below has ALREADY passed hard eligibility checks performed on its full
+    description: experience level, degree, employment type, location and relocation,
+    residency, security clearance, languages, graduation window, and start date. Do not
+    re-litigate those. Score FIT from 0 to 100: how well the candidate's actual skills,
+    coursework, and experience match what the role does day to day, and how competitive they
+    would realistically be. Weigh the candidate's policy and political-science background as
+    seriously as the technical one.
+
+    CALIBRATION -- these numbers mean specific things. Use them as anchors:
+      90-100  COMPETITIVE. The candidate's record covers the core of what this role does day
+              to day, and a hiring team would plausibly put them in the interview pool against
+              other strong new-grad applicants. A good-but-ordinary fit is not a 90.
+      85-89   Strong fit with one real gap the candidate can credibly address.
+      70-84   Plausible stretch: adjacent skills, or a core requirement only partly evidenced.
+      0-69    Weak fit.
+    TITLE TECHNOLOGY: if the job title names a specific tool, platform, or language (e.g.
+    "Salesforce Analyst", "Snowflake Data Engineer", "SAP Business Analyst", "Power BI
+    Developer") and the candidate's materials do not show it, the score MUST stay in the 70s
+    at most, however well everything else fits. Name that technology in "missing_title_tech"
+    exactly as it appears in the title; otherwise use null.
+    REQUIRED SKILLS: for each TECHNICAL skill the posting lists as REQUIRED (a language, tool,
+    platform, framework, or certification -- not a soft skill, and not anything described as
+    preferred, desired, a plus, or a bonus) that the candidate's materials do not show, add an
+    entry to "unmet_requirements": {{"skills": [the skill plus any alternatives the posting accepts],
+    "quote": "the posting's exact words"}}. Example: "proven ability in Golang or JVM languages
+    (Java/Kotlin)" -> {{"skills": ["Golang", "Java", "Kotlin"], "quote": "proven ability in Golang
+    or JVM languages (Java/Kotlin)"}}. A job with any unmet required skill stays in the 70s at most.
+
+    CORE WORK: judge the job by what the hire will spend their days doing, not by whether the
+    posting lists the candidate's major or skills. If that core work falls outside the
+    candidate's primary and interdisciplinary interests (see INTERESTS), describe it in a few
+    words in "core_work_outside_targets" (e.g. "IT audit and SOX controls testing") and keep
+    the score in the 70s at most. Otherwise use null.
+
+    SECURITY CLEARANCE: a job whose "clearance" field starts with "met" accepts candidates who can
+    obtain a clearance, and this candidate can. Do not lower its score or name clearance or
+    citizenship as a gap or hurdle. Only a posting that requires a clearance ALREADY HELD at hire is
+    a clearance gap.
+
+    Backstop only: if you see an unmistakable hard disqualifier the checks missed -- for example
+    an explicit requirement of prior full-time experience -- score that job 0.
+
+    CANDIDATE:
+    {candidate_context}
+
+    JOBS (JSON; each has an integer "id"):
+    {jobs}
+
+    Return ONLY a JSON array with one object per job:
+    [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor",
+      "missing_title_tech": null, "unmet_requirements": [], "core_work_outside_targets": null}}]
+    """
+
+
 def main():
     print("==================================================")
     print("      INITIALIZING AI RECRUITER PIPELINE          ")
@@ -1247,58 +1317,14 @@ def main():
         grader_jobs = [{"id": j["id"], "title": j.get("title"), "company": j.get("company"),
                         "location": j.get("location"), "requirements": j.get("requirements"),
                         "description": j.get("full_description")} for j in eligible]
+        for g, j in zip(grader_jobs, eligible):
+            status = clearance_status(j.get("requirements") or {}, facts)
+            if status:
+                g["clearance"] = status
 
         # Step 1: a score and a one-line reason for EVERY eligible job.
-        score_prompt = f"""
-    You are an elite career strategist scoring job fit for one candidate.
-
-    Every job below has ALREADY passed hard eligibility checks performed on its full
-    description: experience level, degree, employment type, location and relocation,
-    residency, security clearance, languages, graduation window, and start date. Do not
-    re-litigate those. Score FIT from 0 to 100: how well the candidate's actual skills,
-    coursework, and experience match what the role does day to day, and how competitive they
-    would realistically be. Weigh the candidate's policy and political-science background as
-    seriously as the technical one.
-
-    CALIBRATION -- these numbers mean specific things. Use them as anchors:
-      90-100  COMPETITIVE. The candidate's record covers the core of what this role does day
-              to day, and a hiring team would plausibly put them in the interview pool against
-              other strong new-grad applicants. A good-but-ordinary fit is not a 90.
-      85-89   Strong fit with one real gap the candidate can credibly address.
-      70-84   Plausible stretch: adjacent skills, or a core requirement only partly evidenced.
-      0-69    Weak fit.
-    TITLE TECHNOLOGY: if the job title names a specific tool, platform, or language (e.g.
-    "Salesforce Analyst", "Snowflake Data Engineer", "SAP Business Analyst", "Power BI
-    Developer") and the candidate's materials do not show it, the score MUST stay in the 70s
-    at most, however well everything else fits. Name that technology in "missing_title_tech"
-    exactly as it appears in the title; otherwise use null.
-    REQUIRED SKILLS: for each TECHNICAL skill the posting lists as REQUIRED (a language, tool,
-    platform, framework, or certification -- not a soft skill, and not anything described as
-    preferred, desired, a plus, or a bonus) that the candidate's materials do not show, add an
-    entry to "unmet_requirements": {{"skills": [the skill plus any alternatives the posting accepts],
-    "quote": "the posting's exact words"}}. Example: "proven ability in Golang or JVM languages
-    (Java/Kotlin)" -> {{"skills": ["Golang", "Java", "Kotlin"], "quote": "proven ability in Golang
-    or JVM languages (Java/Kotlin)"}}. A job with any unmet required skill stays in the 70s at most.
-
-    CORE WORK: judge the job by what the hire will spend their days doing, not by whether the
-    posting lists the candidate's major or skills. If that core work falls outside the
-    candidate's primary and interdisciplinary interests (see INTERESTS), describe it in a few
-    words in "core_work_outside_targets" (e.g. "IT audit and SOX controls testing") and keep
-    the score in the 70s at most. Otherwise use null.
-
-    Backstop only: if you see an unmistakable hard disqualifier the checks missed -- for example
-    an explicit requirement of prior full-time experience -- score that job 0.
-
-    CANDIDATE:
-    {candidate_context}
-
-    JOBS (JSON; each has an integer "id"):
-    {json.dumps(grader_jobs, indent=2)}
-
-    Return ONLY a JSON array with one object per job:
-    [{{"id": 3, "score": 88, "reason": "one sentence on the deciding factor",
-      "missing_title_tech": null, "unmet_requirements": [], "core_work_outside_targets": null}}]
-    """
+        score_prompt = SCORE_PROMPT.format(candidate_context=candidate_context,
+                                           jobs=json.dumps(grader_jobs, indent=2))
         by_id = {j["id"]: j for j in eligible}
         try:
             rows = json.loads(strip_fences(call_model(client, score_prompt, json_mode=True, temperature=0.2)))
@@ -1335,6 +1361,9 @@ def main():
                         reason = (f"[capped from {score}: open now, not a {facts['graduation'][:4]} graduate "
                                   f"program; you're available {facts['earliest_start']}] {reason}")
                         score = OPEN_ROLE_CAP
+                    if clearance_status(req, facts) and "clearance" in reason.lower():
+                        print(f"   [!] [{row['id']}] grader cited a clearance you can obtain; check the score")
+                        reason = f"[check: grader cited a clearance you can obtain] {reason}"
                     scores[row["id"]] = (score, reason)
         except Exception as e:
             print(f"Error parsing grader scores: {e}")
