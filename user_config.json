@@ -100,6 +100,9 @@
     {"company": "Veeva Systems", "title": "Associate Business Consultant"},
     {"company": "CarGurus", "title": "Associate Marketing Data Analyst"},
     {"company": "Veeva Systems", "title": "Associate Consultant - Entry-Level Technology Consulting"},
-    {"company": "Kx Advisors", "title": "Associate Consultant"}
+    {"company": "Kx Advisors", "title": "Associate Consultant"},
+    {"company": "Veeva Systems", "title": "Entry-Level Technology Consulting"},
+    {"company": "Kx Advisors", "title": "Associate Consultant"},
+    {"company": "Cadmus", "title": "Water"}
   ]
 }
