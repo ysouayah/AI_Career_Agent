@@ -5,15 +5,14 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 
 ### Boston University, Kilachand Honors College, Boston, MA | Expected May 2027
 - Dual Degree, B.A. Political Science & B.S. Data Science | GPA: 3.58 | Dean's List
-- **Relevant Coursework:** Introduction to Machine Learning & AI; Applied Statistics; Algorithms for Data Science; Data Mechanics; Foundations of Data Science I–III; Data Science for Politics; Data, Society & AI Ethics; Business, Markets & Society; Spark! ML X-Lab Practicum, Machine Learning for Business Analytics, Business Experiments & Methods (in progress)
+- **Relevant Coursework:** Introduction to Machine Learning & AI; Applied Statistics; Algorithms for Data Science; Data Mechanics; Foundations of Data Science I–III; Data Science for Politics; Data, Society & AI Ethics; Spark! ML X-Lab Practicum, Machine Learning for Business Analytics, Business Experiments & Methods (in progress)
 
 ## TECHNICAL SKILLS
 
 - **Languages & Tools:** Python (Pandas, NumPy), SQL, PostgreSQL, R, Tableau, Plotly, Streamlit, Git
 - **AI & Data Engineering:** LLM orchestration (Gemini API), Retrieval-Augmented Generation (RAG), prompt engineering, AI-assisted development (Windsurf, Claude), Playwright browser automation, ETL pipeline design, GitHub Actions
 - **Machine Learning:** PyTorch, TensorFlow, scikit-learn (coursework)
-- **Research:** Secondary research, qualitative coding and thematic analysis, program evaluation, cohort analysis, IRB-compliant human subjects research (CITI certified)
-- **Productivity Tools:** Microsoft Office Suite (Excel, PowerPoint), Google Workspace
+- **Productivity Tools:** Microsoft Office Suite, Google Workspace
 - **Spoken Languages:** Native fluency in English and Arabic; full professional fluency in French
 - **Certifications:** CITI Program Certification: Human Subjects Protection Training – Social & Behavioral Focus, Boston University (Charles River Campus) | Record ID: 77467029 | Completed June 3, 2026 (Expires June 3, 2029)
 
@@ -35,16 +34,13 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 - Architected an automated lead enrichment workflow integrated with Apollo to profile high-converting contact segments and dynamically generate look-alike partner lists, dramatically increasing outbound pipeline efficiency.
 - Designed automated filtering and validation logic to score leads based on regional presence and operational criteria, removing manual qualification bottlenecks for the business development team.
 - Developed a targeted creator discovery agent to identify, scrape, and vet international and domestic travel creators; implemented custom filtering logic (content style, commercial models, geographic focus) to deliver qualified outreach lists for marketing collabs.
-- Developed an AI agent that qualified tour operator leads, separating operators already selling Tunisia from expansion opportunities and scoring brand fit.
 - Mapped automation opportunities across internal Notion workflows to surface sales performance data for the leadership team.
 - Built an automated SEO link-mapping pipeline using Python, LLMs, and stealth browser automation to map 590+ verbatim internal links across 270+ live articles with 99.5% verified accuracy, saving 30+ hours of manual site maintenance.
 
 ### Boston Debate League — Data & Policy Analytics Intern | Summer 2026
-- Engineered a cross-season data tracking pipeline in Python and SQL analyzing multi-year tournament datasets (2024–2026) across 80+ schools to quantify BDL Summer Camp ROI across 4 core dimensions.
+- Engineered a cross-season data tracking pipeline in Python and SQL analyzing two seasons of tournament data (2024–25 and 2025–26 school years) across 80+ schools to quantify BDL Summer Camp ROI across 4 core dimensions.
 - Developed custom data normalization algorithms in Python and SQL to resolve historical false positives, accurately mapping student retention, division mobility, and speaker point progression.
 - Conducted comparative cohort analyses demonstrating BDL Summer Camp attendees improved speaker points 78% more than non-attendees (+1.51 pts vs. +0.85 pts control group) and drove a +6.3% school-wide win rate advantage.
-- Evaluated the impact of a summer program using three seasons of tournament data across 80+ schools, building a control group of 72 regularly competing non-attendees to separate the program's effect from normal season-over-season growth.
-- Traced 4 of 7 dropouts to a single school, identifying a localized rather than program-wide retention problem.
 - Synthesized empirical research into an executive memo for senior leadership, delivering data-backed policy recommendations on scholarship allocation, bridge retention, and program equity.
 
 ### Center on Forced Displacement, Boston University — Summer Intern | Summer 2025
@@ -62,7 +58,7 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 - Engineered a two-stage LLM evaluation cascade (Gemini 2.5 Flash) that sifts high-volume preview cards into a shortlist, routes survivors through a Playwright deep-scrape for full-length descriptions, then batch-grades all targets in a single call, cutting API token consumption while eliminating a data-desync defect that had caused the generators to hallucinate role titles.
 - Designed a deterministic nine-gate veto rubric compiled dynamically from a JSON preference config, hard-zeroing any role that trips explicit years-of-experience minimums, semantic seniority markers ("end-to-end ownership," "production at scale"), off-cohort graduation timelines, non-commutable locations, unmet hard requirements, internships, or predatory staffing and resume-farm operators, then surfacing only matches scoring 85/100 or higher.
 - Built a Python-to-PDF fulfillment engine on ReportLab that compiles four upload-ready ATS documents per approved role — a pruned one-page tailored resume, cover letter, 15-question interview prep sheet, and a company brief grounded in live web-search retrieval — hardened with URL-keyed report reconciliation, XML sanitization, and exponential-backoff retry logic against 429/503 rate limits.
-- Built a Python pipeline that reviews ~800 job listings weekly, extracts each posting's requirements into structured fields, and applies eligibility rules in code, checking every rejection against a quote from the posting.
+
 - Added evidence verification so every automated rejection must cite a quote found verbatim in the source posting, and built an evaluation tracker that compares agent decisions against human labels to measure precision and miss rate.
 ### "Pick For Me" Live Market Discovery Agent | July 2026
 - Engineered a real-time web scraping pipeline utilizing Python and SerpApi to dynamically extract, clean, and normalize live retail inventory and local business data from Google search results.
@@ -85,7 +81,6 @@ ysouayah@bu.edu | linkedin.com/in/ysfsouayah | github.com/ysouayah
 - *Co-President (2025 – Present) · Secretary (2024 – 2025)*
 - Lead student committees in planning, budgeting, and executing large-scale community events.
 - Coordinate outreach and volunteer responsibilities to keep events organized and on track.
-- Restructured the board into committees and moved event planning to the start of each semester after a rescheduled kickoff event; most recent General Body Meeting drew 100+ students.
 
 ### Boston Debate League — Volunteer Judge and Alumnus | 2016 – Present
 - Research, construct, and evaluate complex arguments regarding public policy and ethics.
