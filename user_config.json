@@ -31,10 +31,11 @@
     }
   },
   "industry_rubric": {
-    "primary_focus": [
+      "primary_focus": [
       "Data Science",
       "Machine Learning",
-      "Data Analytics"
+      "Data Analytics",
+      "Life sciences and healthcare analytics consulting"
     ],
     "secondary_interdisciplinary_focus": [
       "Political Science",
