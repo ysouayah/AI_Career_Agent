@@ -15,7 +15,8 @@ resume, and emails a report plus tailored application packages.
 2. Extractors → `*_jobs.json`: `linkedin_extractor.py`, `indeed_extractor.py` (board-side entry-level +
    full-time filters), `handshake_extractor.py` (needs `handshake_state.json`; see Handshake below).
    Each then runs `internship_titles` as a second, 2-page pass (board internship filter) and tags
-   those cards `"track": "internship"`
+   those cards `"track": "internship"`. LinkedIn and Indeed then run the week's target-company
+   queries last (see "Target-company searches")
 3. Card stage in run_everything: normalize cards (Handshake has its own layout), drop jobs listed
    in `applied_jobs` (`applied_match`; named in one closing line of the report), location check,
    card job-type check, relevance ranking, cap to the top 80 for the sifter. Internship cards
@@ -121,6 +122,24 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
 - **Package notes:** anything to check before sending (truncated description, missing contact
   detail, unanswered ask, model-chosen practice) is appended to `FINAL_STRATEGY.md` under
   "Package notes", so it reaches the email.
+
+## Target-company searches
+- Config: `target_companies_enabled` (kill switch), `target_companies` (a name, which gets the first
+  core title, or `{"company", "title"}`), `max_target_company_searches` (companies per week).
+- `brainstormer.company_queries` picks this week's "<title> <company>" queries, rotating through the
+  list by week number (no saved state), and writes `company_queries` to `search_targets.json`
+  only when there are some. LinkedIn and Indeed run them after every title and internship search,
+  with 1 page each and the same full-time + entry-level filters.
+- **Additive only.** A company-search card never replaces a card found by any other search, and a
+  role found both ways counts as `title_search`. The title-search top 80 is ranked and cut exactly
+  as before. The best 20 company-search jobs (`TARGET_COMPANY_CAP`) are added after it, so the
+  Sifter sees up to 100.
+- **Never a scoring input.** `found_by` (`title_search` | `target_company`; the board stays in
+  `source`) is for the report header, the "Found by" lines, `agent_log.csv` (last column),
+  `postings.jsonl` and the tracker's "Found by" column only. It never enters a prompt: every
+  prompt builds its job objects field by field.
+- With the switch off, queries, `*_jobs.json`, the Sifter input and every prompt are identical
+  to the code before the feature. The report says "Target-company searches: off."
 
 ## Handshake
 - Session: `handshake_auth.py` (manual BU login + Duo) writes `handshake_state.json` and

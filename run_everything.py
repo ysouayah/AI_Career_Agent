@@ -212,6 +212,32 @@ def relevance(job):
     return score
 
 
+# Target-company searches are additive: their jobs get their own slots after the title-search
+# top 80, so they never push a title-search job out. found_by is bookkeeping for the report and
+# logs only -- it never goes into a prompt, so it can't move a score.
+TARGET_COMPANY_CAP = 20
+FOUND_BY_LABELS = {"title_search": "title search", "target_company": "company search"}
+
+
+def found_by(job):
+    return job.get("found_by") or "title_search"
+
+
+def sifter_pool(jobs):
+    """Title-search jobs ranked and capped exactly as before; then the best company-search jobs."""
+    title_jobs = [j for j in jobs if found_by(j) != "target_company"]
+    company_jobs = [j for j in jobs if found_by(j) == "target_company"]
+    title_jobs.sort(key=relevance, reverse=True)
+    if len(title_jobs) > SIFTER_CAP:
+        print(f"Capping Sifter input to the {SIFTER_CAP} most relevant of {len(title_jobs)} titles.")
+        title_jobs = title_jobs[:SIFTER_CAP]
+    company_jobs.sort(key=relevance, reverse=True)
+    if company_jobs:
+        print(f"Target-company searches: adding the {min(len(company_jobs), TARGET_COMPANY_CAP)} most "
+              f"relevant of {len(company_jobs)} job(s) after the title-search jobs.")
+    return title_jobs + company_jobs[:TARGET_COMPANY_CAP]
+
+
 # ------------------------------------------------------------------------------------------
 # Extraction stage: the model reads, Python decides
 # ------------------------------------------------------------------------------------------
@@ -925,7 +951,7 @@ def send_report():
 # evaluation tracker (update_tracker.py): the agent's decision next to your own verdict.
 RUN_LOG = "agent_log.csv"
 RUN_LOG_FIELDS = ["run_date", "company", "title", "location", "decision", "score", "reason",
-                  "hiring_track", "rules_version", "url", "description_hash"]
+                  "hiring_track", "rules_version", "url", "description_hash", "found_by"]
 
 # Every posting the agent evaluates, saved in full. The run log records WHAT the agent decided;
 # this records what it decided ON -- so any logged job can be re-run against a future version of
@@ -962,6 +988,7 @@ def archive_postings(jobs, run_date, rules_version):
                 "title": job.get("title"), "location": job.get("location"),
                 "raw_text": job.get("raw_text"), "full_description": job.get("full_description"),
                 "requirements": job.get("requirements"), "internship": job.get("internship"),
+                "found_by": found_by(job),
             }, ensure_ascii=False) + "\n")
             added += 1
     print(f"Archived {added} new posting(s) to {POSTINGS_ARCHIVE}.")
@@ -969,6 +996,16 @@ def archive_postings(jobs, run_date, rules_version):
 
 def append_run_log(rows):
     new_file = not os.path.exists(RUN_LOG)
+    if not new_file:
+        # A log written before a column was added gets the new header once; old rows get blanks.
+        with open(RUN_LOG, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            header, old_rows = reader.fieldnames or [], list(reader)
+        if header != RUN_LOG_FIELDS:
+            with open(RUN_LOG, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=RUN_LOG_FIELDS, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows({k: r.get(k) or "" for k in RUN_LOG_FIELDS} for r in old_rows)
     with open(RUN_LOG, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=RUN_LOG_FIELDS)
         if new_file:
@@ -1085,6 +1122,7 @@ def main():
 
     fresh_jobs, seen_signatures, collapsed = [], set(), 0
     already_applied = set()
+    title_signatures, company_signatures = set(), set()   # who found what, for found_by only
     for job in raw_jobs:
         normalize_card(job)
         if applied_match(job, applied_jobs):
@@ -1097,9 +1135,16 @@ def main():
             # A shared placeholder signature would collapse every job into one bucket.
             signature = job["url"]
             collapsed += 1
+        job["_signature"] = signature
+        (company_signatures if found_by(job) == "target_company" else title_signatures).add(signature)
         if not is_job_seen(job["url"], rules_version) and signature not in seen_signatures:
             fresh_jobs.append(job)
             seen_signatures.add(signature)
+    # A posting both kinds of search found counts as a title-search job, whichever card was kept.
+    for job in raw_jobs:
+        if job.pop("_signature", None) in title_signatures:
+            job.pop("found_by", None)
+    company_only_found = len(company_signatures - title_signatures)
 
     already_applied = sorted(already_applied)
     if already_applied:
@@ -1146,10 +1191,7 @@ def main():
     if len(fresh_jobs) < before:
         print(f"Card job-type check removed {before - len(fresh_jobs)} internship/co-op/part-time card(s).")
 
-    fresh_jobs.sort(key=relevance, reverse=True)
-    if len(fresh_jobs) > SIFTER_CAP:
-        print(f"Capping Sifter input to the {SIFTER_CAP} most relevant of {len(fresh_jobs)} titles.")
-        fresh_jobs = fresh_jobs[:SIFTER_CAP]
+    fresh_jobs = sifter_pool(fresh_jobs)
 
     # Each job carries an integer id. Models return ids only and never copy a URL, because
     # LLMs mis-pair fields when transcribing large arrays.
@@ -1449,6 +1491,14 @@ def main():
     ---
     """
             writeups = call_model(client, writeup_prompt, temperature=0.3).strip()
+            # How each job was found is added by code under its heading; the model never sees it.
+            for job in approved:
+                heading = re.compile(rf"^(###\s*\[[^\n]*?\]\(JOB_URL_{job['id']}\))[ \t]*$", re.M)
+                writeups, n = heading.subn(
+                    lambda m: f"{m.group(1)}\n\n*Found by: {FOUND_BY_LABELS[found_by(job)]}*",
+                    writeups, count=1)
+                if not n:
+                    print(f"Warning: no heading for [{job['id']}] in the write-ups; 'Found by' not shown.")
             for job in approved:
                 writeups = writeups.replace(f"JOB_URL_{job['id']}", job.get("url", ""))
             leftover = re.findall(r"JOB_URL_\d+", writeups)
@@ -1577,6 +1627,17 @@ def main():
                             f"Run `python handshake_auth.py` and update the HANDSHAKE_STATE secret.\n")
     except (FileNotFoundError, json.JSONDecodeError):
         pass
+    if config.get("target_companies_enabled"):
+        try:
+            with open("search_targets.json") as f:
+                n_queries = len(json.load(f).get("company_queries") or [])
+        except (FileNotFoundError, json.JSONDecodeError):
+            n_queries = 0
+        n_approved = sum(1 for j in approved if found_by(j) == "target_company")
+        sections.append(f"Target-company searches: {n_queries} queries, {company_only_found} jobs found, "
+                        f"{n_approved} approved.\n")
+    else:
+        sections.append("Target-company searches: off.\n")
     if bad_applied:
         sections.append(f"> ⚠️ **{len(bad_applied)} applied_jobs entry(ies) in user_config.json were ignored:** "
                         f"each needs both a company and a title.\n")
@@ -1584,7 +1645,8 @@ def main():
                 writeups or "No high-scoring matches found in this batch."]
     if report["show_near_misses"] and near_misses:
         lines = [f"- `{r['near_miss_label']}` **[{r.get('title', '?')}]({r.get('url', '')})** — "
-                 f"{r.get('company', '?')} · {track_label(r)}: {r['score']}/100. {r['reason']}"
+                 f"{r.get('company', '?')} · {track_label(r)} · found by {FOUND_BY_LABELS[found_by(r)]}: "
+                 f"{r['score']}/100. {r['reason']}"
                  for r in near_miss_records]
         sections.append(f"\n---\n\n## Worth a look ({report['near_miss_floor']}–{threshold - 1})\n\n"
                         + "\n".join(lines)
@@ -1658,7 +1720,7 @@ def main():
             "hiring_track": ("internship" if jid in intern_ids
                              else (job.get("requirements") or {}).get("hiring_track") or ""),
             "rules_version": rules_version, "url": job.get("url") or "",
-            "description_hash": description_hash(job),
+            "description_hash": description_hash(job), "found_by": found_by(job),
         })
     append_run_log(log_rows)
     archive_postings(scraped, run_date, rules_version)

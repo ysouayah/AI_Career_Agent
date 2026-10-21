@@ -13,6 +13,7 @@ import csv
 import re
 import hashlib
 import sys
+from copy import copy
 from datetime import datetime
 from openpyxl import load_workbook
 
@@ -23,6 +24,22 @@ SAMPLE_RATE = 0.10
 # Tracker columns A..K, in order.
 FIELDS = ["run_date", "company", "title", "location", "decision", "score", "reason",
           "hiring_track", "rules_version", "url"]
+# Added later, so it lives at the right end (found by its header, created if missing): which
+# kind of search found the job, "title_search" or "target_company". Blank on older rows.
+FOUND_BY_HEADER = "Found by"
+
+
+def found_by_column(ws):
+    for c in range(1, ws.max_column + 1):
+        if str(ws.cell(row=1, column=c).value or "").strip() == FOUND_BY_HEADER:
+            return c
+    c = ws.max_column + 1
+    while ws.cell(row=1, column=c - 1).value is None and c > 2:   # first empty header cell
+        c -= 1
+    cell, prev = ws.cell(row=1, column=c, value=FOUND_BY_HEADER), ws.cell(row=1, column=c - 1)
+    cell.font, cell.fill, cell.alignment, cell.border = (copy(prev.font), copy(prev.fill),
+                                                         copy(prev.alignment), copy(prev.border))
+    return c
 
 
 def _key(run_date, company, title):
@@ -42,6 +59,7 @@ def review_flag(row):
 def main():
     wb = load_workbook(TRACKER)
     ws = wb["Agent Log"]
+    found_col = found_by_column(ws)
 
     existing, last = set(), 1
     for r in range(2, ws.max_row + 1):
@@ -69,6 +87,7 @@ def main():
             ws.cell(row=i, column=c, value=value or None)
         ws.cell(row=i, column=1).number_format = "yyyy-mm-dd"
         ws.cell(row=i, column=11, value=review_flag(row) or None)
+        ws.cell(row=i, column=found_col, value=row.get("found_by") or None)
 
     wb.save(TRACKER)
     flagged = sum(1 for r in rows if review_flag(r))
