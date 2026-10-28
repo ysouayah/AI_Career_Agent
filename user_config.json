@@ -12,7 +12,9 @@
     "location": "Boston, MA",
     "can_relocate": false,
     "has_security_clearance": false,
-    "us_citizen": true
+    "us_citizen": true,
+    "degree": "dual degree in Data Science and Political Science",
+    "emphasize_background": "policy and political-science"
   },
   "target_timelines": {
     "pathway_a": {
@@ -75,25 +77,6 @@
     "Data Science Intern",
     "Data Analyst Intern",
     "Policy Intern"
-  ],
-  "target_companies_enabled": true,
-  "max_target_company_searches": 10,
-  "target_companies": [
-    "ClearView Healthcare Partners",
-    "Health Advances",
-    "Trinity Life Sciences",
-    {"company": "Putnam", "title": "Research Analyst"},
-    "L.E.K. Consulting",
-    {"company": "Analysis Group", "title": "Research Analyst"},
-    {"company": "Cornerstone Research", "title": "Research Analyst"},
-    "Back Bay Life Science Advisors",
-    {"company": "Beghou", "title": "Analytics Consultant"},
-    {"company": "IQVIA", "title": "Data Analyst"},
-    "Kx Advisors",
-    "Vital Strategy Group",
-    {"company": "Veeva Systems", "title": "Associate Consultant"},
-    {"company": "Amgen", "title": "Data Analyst"},
-    {"company": "CarGurus", "title": "Data Analyst"}
   ],
   "hard_vetos": {
     "accepted_employment_types": [

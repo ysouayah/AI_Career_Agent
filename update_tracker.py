@@ -25,7 +25,8 @@ SAMPLE_RATE = 0.10
 FIELDS = ["run_date", "company", "title", "location", "decision", "score", "reason",
           "hiring_track", "rules_version", "url"]
 # Added later, so it lives at the right end (found by its header, created if missing): which
-# kind of search found the job, "title_search" or "target_company". Blank on older rows.
+# kind of search found the job ("title_search"; rows from Oct 2026 may say "target_company").
+# Blank on older rows.
 FOUND_BY_HEADER = "Found by"
 
 

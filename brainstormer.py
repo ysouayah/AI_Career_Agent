@@ -6,9 +6,12 @@ import sys
 import tomllib 
 from resume_parser import extract_resume_text
 import time
-from datetime import date
 
 MAX_EXTRA_TITLES = 4   # titles the model may add on top of search_titles_core
+# The only config sections the model sees. A key not listed here (applied_jobs, hard_vetos,
+# report, or anything added later) stays out of the prompt until it is added on purpose.
+PROMPT_CONFIG_KEYS = ("candidate_facts", "target_timelines", "industry_rubric",
+                      "search_titles_core", "search_titles_excluded", "search_titles_internship")
 
 
 def _norm_title(title):
@@ -40,36 +43,6 @@ def merge_titles(core, extras, excluded):
     return titles + added, added, dropped
 
 
-def company_queries(config, core_titles, today=None):
-    """This week's target-company searches: "<title> <company>", run after the title searches.
-    Additive only, never a scoring input. Rotates through the list by week number, so every
-    company is searched over time with no saved state. [] when the switch is off."""
-    if not config.get("target_companies_enabled"):
-        return []
-    default_title = core_titles[0].strip() if core_titles else ""
-    entries = []
-    for entry in config.get("target_companies", []):
-        if isinstance(entry, str):
-            company, title = entry.strip(), default_title
-        elif isinstance(entry, dict):
-            company = str(entry.get("company") or "").strip()
-            title = str(entry.get("title") or "").strip() or default_title
-        else:
-            company, title = "", ""
-        if not company:
-            print(f"[Brainstormer] >> WARNING: target_companies entry ignored (no company): {entry}")
-            continue
-        entries.append({"query": f"{title} {company}".strip(), "company": company})
-    k = int(config.get("max_target_company_searches", 10) or 0)
-    if not entries or k <= 0:
-        return []
-    if k >= len(entries):
-        return entries
-    today = today or date.today()
-    start = (today.toordinal() // 7 * k) % len(entries)
-    return [entries[(start + i) % len(entries)] for i in range(k)]
-
-
 def main():
     print("\n[Brainstormer] >> Analyzing candidate profile to determine search targets...")
 
@@ -99,7 +72,8 @@ def main():
     if os.path.exists("user_config.json"):
         with open("user_config.json", "r") as f:
             config = json.load(f)
-        preferences = json.dumps(config, indent=2)
+        preferences = json.dumps({k: config[k] for k in PROMPT_CONFIG_KEYS if k in config}, indent=2)
+    accepted_types = config.get("hard_vetos", {}).get("accepted_employment_types", ["full_time"])
 
     # The core list is always searched; the model only adds to it.
     core_titles = config.get("search_titles_core", [])
@@ -130,7 +104,7 @@ def main():
     - These are SEARCH QUERIES for job boards, not descriptions of the candidate.
       Use the literal phrasing employers put in job titles.
     - Do NOT include seniority markers like Senior, Staff, Principal, Lead, or Manager.
-    - Search only for the employment types in hard_vetos.accepted_employment_types. If that
+    - Search only for these employment types: {json.dumps(accepted_types)}. If that
       is full-time only, do NOT include Intern, Internship, Co-op, Part-time, or Summer in any
       title -- the candidate cannot accept those, and each one wastes a search.
     """
@@ -164,8 +138,7 @@ def main():
 
             # Every extractor searches only the FIRST location, so it must be the candidate's
             # own city from the config, not whatever the model happened to list first.
-            home = (json.loads(preferences).get("candidate_facts", {}).get("location")
-                    if preferences else None)
+            home = config.get("candidate_facts", {}).get("location")
             if home:
                 others = [l for l in targets.get("locations", []) if l.lower() != home.lower()]
                 targets["locations"] = [home] + others
@@ -175,15 +148,6 @@ def main():
             targets["internship_titles"] = [t.strip() for t in config.get("search_titles_internship", [])
                                              if str(t).strip()]
             print(f"[Brainstormer] >> Internship titles: {targets['internship_titles']}")
-
-            # Target-company searches: written only when there are some, so with the switch off
-            # this file is exactly what it was before the feature existed.
-            extra = company_queries(config, core_titles)
-            if extra:
-                targets["company_queries"] = extra
-                print(f"[Brainstormer] >> Target-company searches this week: {[q['query'] for q in extra]}")
-            else:
-                print("[Brainstormer] >> Target-company searches: off or none listed.")
 
             with open("search_targets.json", "w") as f:
                 json.dump(targets, f, indent=4)

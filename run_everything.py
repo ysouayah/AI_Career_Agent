@@ -66,6 +66,16 @@ def strip_fences(text):
     return (text or "").replace("```json", "").replace("```", "").strip()
 
 
+SEASONS = {1: "Spring", 2: "Spring", 3: "Spring", 4: "Spring", 5: "Spring", 6: "Summer",
+           7: "Summer", 8: "Summer", 9: "Fall", 10: "Fall", 11: "Fall", 12: "Fall"}
+
+
+def grad_term(ym):
+    """ "2027-05" -> "Spring 2027": the graduation term named in prompts."""
+    year, month = ym.split("-")[:2]
+    return f"{SEASONS[int(month)]} {year}"
+
+
 def load_config():
     """Candidate facts and rules live in user_config.json, not in this file."""
     config = {}
@@ -212,11 +222,13 @@ def relevance(job):
     return score
 
 
-# Target-company searches are additive: their jobs get their own slots after the title-search
-# top 80, so they never push a title-search job out. found_by is bookkeeping for the report and
-# logs only -- it never goes into a prompt, so it can't move a score.
-TARGET_COMPANY_CAP = 20
-FOUND_BY_LABELS = {"title_search": "title search", "target_company": "company search"}
+# found_by is bookkeeping for the report and logs only -- it never goes into a prompt, so it
+# can't move a score. Every job is found by a title search; an unknown value prints as itself.
+FOUND_BY_LABELS = {"title_search": "title search"}
+
+
+def found_by_label(job):
+    return FOUND_BY_LABELS.get(found_by(job), found_by(job))
 
 
 def found_by(job):
@@ -224,18 +236,12 @@ def found_by(job):
 
 
 def sifter_pool(jobs):
-    """Title-search jobs ranked and capped exactly as before; then the best company-search jobs."""
-    title_jobs = [j for j in jobs if found_by(j) != "target_company"]
-    company_jobs = [j for j in jobs if found_by(j) == "target_company"]
-    title_jobs.sort(key=relevance, reverse=True)
-    if len(title_jobs) > SIFTER_CAP:
-        print(f"Capping Sifter input to the {SIFTER_CAP} most relevant of {len(title_jobs)} titles.")
-        title_jobs = title_jobs[:SIFTER_CAP]
-    company_jobs.sort(key=relevance, reverse=True)
-    if company_jobs:
-        print(f"Target-company searches: adding the {min(len(company_jobs), TARGET_COMPANY_CAP)} most "
-              f"relevant of {len(company_jobs)} job(s) after the title-search jobs.")
-    return title_jobs + company_jobs[:TARGET_COMPANY_CAP]
+    """The most relevant SIFTER_CAP jobs, by title alone."""
+    jobs.sort(key=relevance, reverse=True)
+    if len(jobs) > SIFTER_CAP:
+        print(f"Capping Sifter input to the {SIFTER_CAP} most relevant of {len(jobs)} titles.")
+        jobs = jobs[:SIFTER_CAP]
+    return jobs
 
 
 # ------------------------------------------------------------------------------------------
@@ -398,13 +404,16 @@ def quote_found(quote, text):
 TITLE_TECH_CAP = 79
 
 
-def title_tech_missing(tech, title, candidate_text):
+def title_tech_missing(tech, title, candidate_text, company=""):
     """The grader names a technology from the title that the candidate lacks; Python checks both
     halves before capping -- it must really be in the title and really be absent from the
-    candidate's materials. Whole-word match, so "R" doesn't hit every word containing an r."""
+    candidate's materials. Whole-word match, so "R" doesn't hit every word containing an r.
+    The employer's own name is never a missing tool ("Data Scientist, Salesforce" at Salesforce)."""
     if not isinstance(tech, str) or not _norm(tech):
         return False
     t = f" {_norm(tech)} "
+    if t in f" {company_key(company)} ":
+        return False
     return t in f" {_norm(title)} " and t not in f" {_norm(experience_text(candidate_text))} "
 
 
@@ -457,21 +466,45 @@ def find_duplicates(jobs):
 # ---- Already applied ----------------------------------------------------------------------
 # applied_jobs in user_config.json lists roles applied to outside the pipeline (IQVIA's MASC
 # role came back as a near miss in Oct 2026, a month after the application). An entry matches
-# when the companies agree and every word of its title is in the posting's title, so a short
-# title survives rewording ("(MASC, Hybrid)" -> "(MASC)") without hiding the company's other roles.
+# when the company names are the same and the entry's title appears in the posting's title as
+# one phrase, so a short title survives rewording ("(MASC, Hybrid)" -> "(MASC)").
+# Oct 26, word-subset matching hid four other roles: BCG X's internship version of an applied
+# role, CRA's 2028 intern posting, Veeva's "Clinical Data Technology Consulting" (the applied
+# role is "Technology Consulting") and Kx's Summer Associate. Now the words must be in order and
+# together, and an internship never matches an entry that isn't one.
 
 def _words(text):
     return set(_norm(text).split())
 
 
+LEGAL_WORDS = {"the", "inc", "llc", "llp", "ltd", "lp", "plc", "corp", "corporation", "co",
+               "company", "group"}
+
+
+def company_key(name):
+    """A company name for comparing whole names: "The Cadmus Group" -> "cadmus"."""
+    return " ".join(w for w in _norm(name).split() if w not in LEGAL_WORDS)
+
+
+# Whole words on normalised text ("Intern/co-op" -> "intern co op"), so "Internal Audit" and
+# "International Policy" are not internships.
+INTERNSHIP_TITLE = re.compile(
+    r"\b(interns?|internships?|co op|coops?|summer (associates?|analysts?|consultants?|scholars?))\b")
+
+
 def applied_match(job, applied):
     """The applied_jobs entry this card matches, or None."""
-    company, title = _words(job.get("company")), _words(job.get("title"))
+    company = company_key(job.get("company"))
+    title = f" {_norm(job.get('title'))} "
+    posting_is_internship = bool(INTERNSHIP_TITLE.search(title))
     for entry in applied:
-        ec, et = _words(entry.get("company")), _words(entry.get("title"))
+        ec, et = company_key(entry.get("company")), _norm(entry.get("title"))
         # An entry with no title would be contained in every title and hide the whole company.
-        if ec and et and company and (ec <= company or company <= ec) and et <= title:
-            return entry
+        if not (ec and et and company == ec and f" {et} " in title):
+            continue
+        if posting_is_internship and not INTERNSHIP_TITLE.search(et):
+            continue
+        return entry
     return None
 
 
@@ -1022,8 +1055,7 @@ SCORE_PROMPT = """
     residency, security clearance, languages, graduation window, and start date. Do not
     re-litigate those. Score FIT from 0 to 100: how well the candidate's actual skills,
     coursework, and experience match what the role does day to day, and how competitive they
-    would realistically be. Weigh the candidate's policy and political-science background as
-    seriously as the technical one.
+    would realistically be.{weigh_background}
 
     CALIBRATION -- these numbers mean specific things. Use them as anchors:
       90-100  COMPETITIVE. The candidate's record covers the core of what this role does day
@@ -1122,7 +1154,6 @@ def main():
 
     fresh_jobs, seen_signatures, collapsed = [], set(), 0
     already_applied = set()
-    title_signatures, company_signatures = set(), set()   # who found what, for found_by only
     for job in raw_jobs:
         normalize_card(job)
         if applied_match(job, applied_jobs):
@@ -1135,16 +1166,9 @@ def main():
             # A shared placeholder signature would collapse every job into one bucket.
             signature = job["url"]
             collapsed += 1
-        job["_signature"] = signature
-        (company_signatures if found_by(job) == "target_company" else title_signatures).add(signature)
         if not is_job_seen(job["url"], rules_version) and signature not in seen_signatures:
             fresh_jobs.append(job)
             seen_signatures.add(signature)
-    # A posting both kinds of search found counts as a title-search job, whichever card was kept.
-    for job in raw_jobs:
-        if job.pop("_signature", None) in title_signatures:
-            job.pop("found_by", None)
-    company_only_found = len(company_signatures - title_signatures)
 
     already_applied = sorted(already_applied)
     if already_applied:
@@ -1213,10 +1237,12 @@ def main():
         cards = [{"id": j["id"], "title": j.get("title", ""), "company": j.get("company", ""),
                   "location": j.get("location", "")} for j in fresh_jobs]
         interests = config.get("industry_rubric", {})
+        degree = (facts.get("degree") or "").strip()
+        degree_clause = f", {degree}" if degree else ""
         sift_prompt = f"""
     You are ranking job search results for a candidate.
 
-    CANDIDATE: Spring 2027 graduate, dual degree in Data Science and Political Science.
+    CANDIDATE: {grad_term(facts['graduation'])} graduate{degree_clause}.
     Interests: {', '.join(interests.get('primary_focus', []))}; also
     {', '.join(interests.get('secondary_interdisciplinary_focus', []))}.
     Seeking full-time roles starting after graduation.
@@ -1349,6 +1375,7 @@ def main():
     if os.path.exists("transcript.pdf"):
         candidate_context += "\n\n--- ACADEMIC TRANSCRIPT ---\n" + extract_resume_text("transcript.pdf")
     rubric = config.get("industry_rubric", {})
+    emphasis = (facts.get("emphasize_background") or "").strip()
     candidate_context += (
         f"\n\n--- INTERESTS ---\nPrimary: {', '.join(rubric.get('primary_focus', []))}\n"
         f"Interdisciplinary: {', '.join(rubric.get('secondary_interdisciplinary_focus', []))}\n"
@@ -1365,8 +1392,10 @@ def main():
                 g["clearance"] = status
 
         # Step 1: a score and a one-line reason for EVERY eligible job.
-        score_prompt = SCORE_PROMPT.format(candidate_context=candidate_context,
-                                           jobs=json.dumps(grader_jobs, indent=2))
+        score_prompt = SCORE_PROMPT.format(
+            candidate_context=candidate_context, jobs=json.dumps(grader_jobs, indent=2),
+            weigh_background=(f" Weigh the candidate's {emphasis} background as\n"
+                              f"    seriously as the technical one." if emphasis else ""))
         by_id = {j["id"]: j for j in eligible}
         try:
             rows = json.loads(strip_fences(call_model(client, score_prompt, json_mode=True, temperature=0.2)))
@@ -1375,7 +1404,8 @@ def main():
                     score, reason = int(row.get("score", 0)), str(row.get("reason", "")).strip()
                     tech = row.get("missing_title_tech")
                     title = (by_id.get(row["id"]) or {}).get("title") or ""
-                    if score > TITLE_TECH_CAP and title_tech_missing(tech, title, candidate_context):
+                    company = (by_id.get(row["id"]) or {}).get("company") or ""
+                    if score > TITLE_TECH_CAP and title_tech_missing(tech, title, candidate_context, company):
                         reason = f"[capped from {score}: title names {tech.strip()}, not on resume] {reason}"
                         score = TITLE_TECH_CAP
                     posting = (by_id.get(row["id"]) or {}).get("full_description") or ""
@@ -1495,7 +1525,7 @@ def main():
             for job in approved:
                 heading = re.compile(rf"^(###\s*\[[^\n]*?\]\(JOB_URL_{job['id']}\))[ \t]*$", re.M)
                 writeups, n = heading.subn(
-                    lambda m: f"{m.group(1)}\n\n*Found by: {FOUND_BY_LABELS[found_by(job)]}*",
+                    lambda m: f"{m.group(1)}\n\n*Found by: {found_by_label(job)}*",
                     writeups, count=1)
                 if not n:
                     print(f"Warning: no heading for [{job['id']}] in the write-ups; 'Found by' not shown.")
@@ -1512,15 +1542,16 @@ def main():
     if intern_eligible:
         print(f"\n--- PHASE 7b: SCORING {len(intern_eligible)} SPRING INTERNSHIP(S) ---")
         intern_by_id = {j["id"]: j for j in intern_eligible}
+        intern_weigh = (f" Weigh the\n    candidate's {emphasis} background as seriously as the technical one."
+                        if emphasis else "")
         intern_prompt = f"""
     You are an elite career strategist scoring job fit for one candidate.
 
-    Every job below is a SPRING 2027 INTERNSHIP that the posting says can lead to a full-time
+    Every job below is a SPRING {facts['graduation'][:4]} INTERNSHIP that the posting says can lead to a full-time
     role. Hard eligibility (season, location, conversion, experience, degree, languages) has
     ALREADY been checked; do not re-litigate it. Score FIT from 0 to 100: how well the
     candidate's actual skills, coursework, and experience match what the intern will do day to
-    day, and how well the full-time role it leads to fits the candidate's interests. Weigh the
-    candidate's policy and political-science background as seriously as the technical one.
+    day, and how well the full-time role it leads to fits the candidate's interests.{intern_weigh}
       90-100  The candidate's record covers the core of the work; a strong applicant.
       85-89   Strong fit with one real gap.
       70-84   Plausible stretch.
@@ -1557,7 +1588,8 @@ def main():
                 score, reason = int(row.get("score", 0)), str(row.get("reason", "")).strip()
                 # The same evidence-checked caps as full-time jobs, minus the two about start timing.
                 tech = row.get("missing_title_tech")
-                if score > TITLE_TECH_CAP and title_tech_missing(tech, job.get("title") or "", candidate_context):
+                if score > TITLE_TECH_CAP and title_tech_missing(tech, job.get("title") or "", candidate_context,
+                                                                 job.get("company") or ""):
                     reason = f"[capped from {score}: title names {tech.strip()}, not on resume] {reason}"
                     score = TITLE_TECH_CAP
                 gaps = [g for g in (unmet_requirement(item, posting, candidate_context)
@@ -1627,17 +1659,6 @@ def main():
                             f"Run `python handshake_auth.py` and update the HANDSHAKE_STATE secret.\n")
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-    if config.get("target_companies_enabled"):
-        try:
-            with open("search_targets.json") as f:
-                n_queries = len(json.load(f).get("company_queries") or [])
-        except (FileNotFoundError, json.JSONDecodeError):
-            n_queries = 0
-        n_approved = sum(1 for j in approved if found_by(j) == "target_company")
-        sections.append(f"Target-company searches: {n_queries} queries, {company_only_found} jobs found, "
-                        f"{n_approved} approved.\n")
-    else:
-        sections.append("Target-company searches: off.\n")
     if bad_applied:
         sections.append(f"> ⚠️ **{len(bad_applied)} applied_jobs entry(ies) in user_config.json were ignored:** "
                         f"each needs both a company and a title.\n")
@@ -1645,7 +1666,7 @@ def main():
                 writeups or "No high-scoring matches found in this batch."]
     if report["show_near_misses"] and near_misses:
         lines = [f"- `{r['near_miss_label']}` **[{r.get('title', '?')}]({r.get('url', '')})** — "
-                 f"{r.get('company', '?')} · {track_label(r)} · found by {FOUND_BY_LABELS[found_by(r)]}: "
+                 f"{r.get('company', '?')} · {track_label(r)} · found by {found_by_label(r)}: "
                  f"{r['score']}/100. {r['reason']}"
                  for r in near_miss_records]
         sections.append(f"\n---\n\n## Worth a look ({report['near_miss_floor']}–{threshold - 1})\n\n"

@@ -491,6 +491,7 @@ except (FileNotFoundError, json.JSONDecodeError):
     _facts = {}
 GRADUATION = _month_year(_facts.get("graduation"), "May 2027")
 EARLIEST_START = _month_year(_facts.get("earliest_start"), "September 2027")
+GRAD_YEAR = GRADUATION.split()[-1]   # "May 2027" -> "2027"
 
 SOURCE_CLAIM = re.compile(
     r",?\s*(as|which I saw|that I found)\s+(advertised|posted|listed|found|seen)\s+on\s+"
@@ -1125,7 +1126,7 @@ def build_package(client, job, label, output_dir, resume_text, notes=None):
     if job.get("track") == "internship":
         # A spring internship starts before graduation; the September date would contradict it.
         availability_rule = (
-            f"- This is an application for a Spring 2027 INTERNSHIP that the posting says can lead to "
+            f"- This is an application for a Spring {GRAD_YEAR} INTERNSHIP that the posting says can lead to "
             f"a full-time role. State once, plainly, that the candidate is applying for the spring "
             f"internship, graduates in {GRADUATION}, and hopes to grow it into the full-time role. "
             f"Do not mention {EARLIEST_START} and do not state any weekly hours or part-time schedule.")

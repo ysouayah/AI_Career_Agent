@@ -12,23 +12,15 @@ LINKEDIN_FILTERS = "&f_JT=F&f_E=2"
 # stage routes them to their own pool and they never displace a full-time job.
 LINKEDIN_INTERN_FILTERS = "&f_JT=I"
 MAX_INTERN_PAGES = 2
-# Target-company searches ("<title> <company>" from search_targets.json): run last, 1 page each,
-# same full-time + entry-level filters. Additive only: their cards are tagged found_by
-# "target_company" and never replace a card a title search already found.
 MAX_PAGES = 5   # pages per title search
-MAX_COMPANY_PAGES = 1
 
 
 def plan_searches(data):
-    """(query, filters, pages, track, found_by) in run order: title searches exactly as before,
-    then internship searches, then target-company searches."""
+    """(query, filters, pages, track) in run order: the full-time searches, then the internship searches."""
     titles = data.get("titles") or []
     intern_titles = data.get("internship_titles") or []
-    company = [q["query"] for q in (data.get("company_queries") or [])
-               if isinstance(q, dict) and str(q.get("query") or "").strip()]
-    return ([(t, LINKEDIN_FILTERS, MAX_PAGES, None, None) for t in titles]
-            + [(t, LINKEDIN_INTERN_FILTERS, MAX_INTERN_PAGES, "internship", None) for t in intern_titles]
-            + [(q, LINKEDIN_FILTERS, MAX_COMPANY_PAGES, None, "target_company") for q in company])
+    return ([(t, LINKEDIN_FILTERS, MAX_PAGES, None) for t in titles]
+            + [(t, LINKEDIN_INTERN_FILTERS, MAX_INTERN_PAGES, "internship") for t in intern_titles])
 
 async def scrape_linkedin():
     print("--- INITIATING LINKEDIN EXTRACTION ---")
@@ -68,10 +60,9 @@ async def scrape_linkedin():
         print(f"Loaded {len(titles)} target titles. Starting LinkedIn scrape with {MAX_PAGES}-page depth limit...")
 
         # 3. Loop through every title: the full-time searches, then the internship searches
-        for title, filters, max_pages, track, found_by in searches:
+        for title, filters, max_pages, track in searches:
             encoded_query = urllib.parse.quote(title)
-            print(f"\n-> Searching: {title}" + (" (internships)" if track else "")
-                  + (" (target company)" if found_by else ""))
+            print(f"\n-> Searching: {title}" + (" (internships)" if track else ""))
             
             # --- PAGINATION LOOP START ---
             for page_num in range(0, max_pages):
@@ -115,8 +106,6 @@ async def scrape_linkedin():
                                     }
                                     if track:
                                         job["track"] = track
-                                    if found_by:
-                                        job["found_by"] = found_by
                                     all_jobs_list.append(job)
                                     
                 except Exception as page_error:
@@ -127,12 +116,8 @@ async def scrape_linkedin():
         # Deduplicate jobs by URL
         # A job found by a full-time search stays untagged even if an internship search finds it too.
         by_url = {}
-        # A target-company card is kept only if no other search found that URL.
         for job in all_jobs_list:
-            if job.get('found_by') == 'target_company':
-                if job['url'] not in by_url:
-                    by_url[job['url']] = job
-            elif job['url'] not in by_url or not job.get('track'):
+            if job['url'] not in by_url or not job.get('track'):
                 by_url[job['url']] = job
         unique_jobs = list(by_url.values())
         print(f"\n====================================")

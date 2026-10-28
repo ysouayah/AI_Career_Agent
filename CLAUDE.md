@@ -11,12 +11,13 @@ resume, and emails a report plus tailored application packages.
 ## Pipeline (run_everything.py orchestrates; each phase is a separate script)
 1. `brainstormer.py` → `search_targets.json` (titles = `search_titles_core` from the config plus at
    most 4 model titles drawn from the resume, minus `search_titles_excluded`; first location is
-   always Boston); `internship_titles` = `search_titles_internship` copied as is
+   always Boston); `internship_titles` = `search_titles_internship` copied as is. The model sees
+   only the config keys in `PROMPT_CONFIG_KEYS` plus `accepted_employment_types`; a new key stays
+   out until it is added to that list
 2. Extractors → `*_jobs.json`: `linkedin_extractor.py`, `indeed_extractor.py` (board-side entry-level +
    full-time filters), `handshake_extractor.py` (needs `handshake_state.json`; see Handshake below).
    Each then runs `internship_titles` as a second, 2-page pass (board internship filter) and tags
-   those cards `"track": "internship"`. LinkedIn and Indeed then run the week's target-company
-   queries last (see "Target-company searches")
+   those cards `"track": "internship"`
 3. Card stage in run_everything: normalize cards (Handshake has its own layout), drop jobs listed
    in `applied_jobs` (`applied_match`; named in one closing line of the report), location check,
    card job-type check, relevance ranking, cap to the top 80 for the sifter. Internship cards
@@ -32,9 +33,14 @@ resume, and emails a report plus tailored application packages.
 7. Run log: `agent_log.csv` + `postings.jsonl`; `update_tracker.py` imports into the local tracker
 
 Config lives in `user_config.json` (candidate facts, hard vetos, report settings, `applied_jobs`).
-An `applied_jobs` entry is a company plus a title; it matches a posting at that company whose title
-contains every word of the entry's title, so a short title hides every role it fits. The list is
-outside the rules fingerprint.
+An `applied_jobs` entry is a company plus a title. It matches a posting when the company names are
+the same whole name (case, punctuation and The/Inc/LLC/Group ignored: `company_key`) and the entry's
+title appears in the posting's title as one phrase. An internship posting (whole word intern,
+internship or co-op, or "Summer Associate/Analyst/Consultant") never matches an entry that isn't
+one. The list is outside the rules fingerprint.
+
+`found_by` is kept for the report's "Found by" lines, `agent_log.csv`, `postings.jsonl` and the
+tracker's "Found by" column; every job is `title_search`. It never enters a prompt.
 
 Phases are subprocesses that hand off through gitignored JSON files in the repo root:
 `*_jobs.json` → `sifted_jobs.json` → `deep_jobs.json` → `approved_jobs.json` and
@@ -72,6 +78,7 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
   edits to other scripts or to other config sections release nothing.
 
 ## Design rules (each came from a real failure; don't undo them)
+- No company names: search is driven only by the resume and search titles.
 - **Hard rules fire only on evidence.** Every disqualifier needs a quote that appears verbatim in the
   posting (`quote_found`). No quote, or a quote that doesn't support the claim, means the rule
   doesn't fire. Example: "immediate hire" needs a quote about start timing, not "recent grads welcome".
@@ -122,24 +129,6 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
 - **Package notes:** anything to check before sending (truncated description, missing contact
   detail, unanswered ask, model-chosen practice) is appended to `FINAL_STRATEGY.md` under
   "Package notes", so it reaches the email.
-
-## Target-company searches
-- Config: `target_companies_enabled` (kill switch), `target_companies` (a name, which gets the first
-  core title, or `{"company", "title"}`), `max_target_company_searches` (companies per week).
-- `brainstormer.company_queries` picks this week's "<title> <company>" queries, rotating through the
-  list by week number (no saved state), and writes `company_queries` to `search_targets.json`
-  only when there are some. LinkedIn and Indeed run them after every title and internship search,
-  with 1 page each and the same full-time + entry-level filters.
-- **Additive only.** A company-search card never replaces a card found by any other search, and a
-  role found both ways counts as `title_search`. The title-search top 80 is ranked and cut exactly
-  as before. The best 20 company-search jobs (`TARGET_COMPANY_CAP`) are added after it, so the
-  Sifter sees up to 100.
-- **Never a scoring input.** `found_by` (`title_search` | `target_company`; the board stays in
-  `source`) is for the report header, the "Found by" lines, `agent_log.csv` (last column),
-  `postings.jsonl` and the tracker's "Found by" column only. It never enters a prompt: every
-  prompt builds its job objects field by field.
-- With the switch off, queries, `*_jobs.json`, the Sifter input and every prompt are identical
-  to the code before the feature. The report says "Target-company searches: off."
 
 ## Handshake
 - Session: `handshake_auth.py` (manual BU login + Duo) writes `handshake_state.json` and
