@@ -2,37 +2,73 @@ name: Weekly AI Career Agent
 
 on:
   schedule:
-    - cron: '37 7 * * 1'
+    - cron: '37 10 * * 1'
       timezone: "America/New_York"
   workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
 
 jobs:
   run-agent:
     runs-on: ubuntu-24.04
 
     steps:
+    - name: Skip backup if already ran today
+      id: check
+      if: github.event_name == 'schedule'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        today=$(TZ=America/New_York date +%F)
+        skip=false
+        reason=""
+        for status in success in_progress queued; do
+          for t in $(gh run list --repo "${{ github.repository }}" --workflow weekly_agent.yml \
+                       --status "$status" --limit 20 --json createdAt,databaseId \
+                       --jq '.[] | select(.databaseId != ${{ github.run_id }}) | .createdAt'); do
+            if [ "$(TZ=America/New_York date -d "$t" +%F)" = "$today" ]; then
+              skip=true; reason=$status; break 2
+            fi
+          done
+        done
+        if [ "$skip" = true ]; then
+          if [ "$reason" = success ]; then
+            echo "Already ran today; skipping backup run."
+          else
+            echo "A run started today is $reason; skipping backup run."
+          fi
+        fi
+        echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
     - name: Checkout Repository
+      if: steps.check.outputs.skip != 'true'
       uses: actions/checkout@v4
 
     - name: Set up Python 3.12
+      if: steps.check.outputs.skip != 'true'
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
         cache: 'pip'
 
     - name: Install Dependencies
+      if: steps.check.outputs.skip != 'true'
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         python -m playwright install --with-deps chromium
 
     - name: Generate secrets.toml
+      if: steps.check.outputs.skip != 'true'
       run: |
         echo 'GEMINI_API_KEY = "${{ secrets.GEMINI_API_KEY }}"' > secrets.toml
         echo 'EMAIL_USER = "${{ secrets.EMAIL_USER }}"' >> secrets.toml
         echo 'EMAIL_PASS = "${{ secrets.EMAIL_PASS }}"' >> secrets.toml
 
     - name: Restore Handshake session
+      if: steps.check.outputs.skip != 'true'
       env:
         HANDSHAKE_STATE: ${{ secrets.HANDSHAKE_STATE }}
       run: |
@@ -41,6 +77,7 @@ jobs:
         fi
 
     - name: Run AI Pipeline
+      if: steps.check.outputs.skip != 'true'
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         EMAIL_USER: ${{ secrets.EMAIL_USER }}
@@ -48,6 +85,7 @@ jobs:
       run: python run_everything.py
 
     - name: Commit Updated Memory Bank
+      if: steps.check.outputs.skip != 'true'
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
