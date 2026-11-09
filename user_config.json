@@ -34,25 +34,20 @@
     }
   },
   "industry_rubric": {
-      "primary_focus": [
+    "primary_focus": [
+      "Data science and analytics applied to public policy, law, human rights and international affairs",
       "Data Science",
-      "Machine Learning",
       "Data Analytics",
       "Life sciences and healthcare analytics consulting"
     ],
     "secondary_interdisciplinary_focus": [
       "Political Science",
       "Immigration Policy",
-      "Public Policy Analysis"
+      "Public Policy Analysis",
+      "International Relations",
+      "Machine Learning"
     ],
-    "preferred_tech_stack": [
-      "Python",
-      "SQL",
-      "PostgreSQL",
-      "Pandas",
-      "R",
-      "Tableau"
-    ]
+    "preferred_tech_stack": ["Python", "SQL", "PostgreSQL", "Pandas", "R", "Tableau"]
   },
   "search_titles_core": [
     "Associate Consultant",
@@ -64,7 +59,12 @@
     "New Grad Data Scientist",
     "Research Analyst",
     "Policy Analyst",
-    "Business Analyst"
+    "Business Analyst",
+    "Research Assistant",
+    "Research Associate",
+    "Program Associate",
+    "Monitoring and Evaluation Analyst",
+    "Legal Assistant"
   ],
   "search_titles_excluded": [
     "Quantitative Analyst",
