@@ -82,7 +82,7 @@ def main():
         print("WARNING: user_config.json has no search_titles_core; "
               f"only the model's {MAX_EXTRA_TITLES} titles will be searched.")
 
-    client = genai.Client()
+    client = genai.Client(http_options=types.HttpOptions(api_version="v1beta"))
 
     prompt = f"""
     Analyze the following candidate profile.

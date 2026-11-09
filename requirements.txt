@@ -1,4 +1,4 @@
-google-genai
+google-genai==1.65.0
 playwright
 playwright-stealth
 reportlab

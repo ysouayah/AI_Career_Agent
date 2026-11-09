@@ -1400,7 +1400,7 @@ def build_application_packages(near_miss_requests=None):
             print("   [-] No jobs cleared the grader and no internships were listed. Skipping package generation.")
             return
 
-    client = genai.Client()
+    client = genai.Client(http_options=types.HttpOptions(api_version="v1beta"))
     print(f"Drafting full upload-ready documents for {len(labelled)} roles...")
 
     built, package_notes = 0, []

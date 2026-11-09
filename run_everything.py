@@ -1226,7 +1226,7 @@ def main():
         j["track"] = "internship"
     intern_ids = {j["id"] for j in intern_pool}
 
-    client = genai.Client()
+    client = genai.Client(http_options=types.HttpOptions(api_version="v1beta"))
 
     # --- PHASE 4: The Sifter (ranking only) ---
     print("\n--- PHASE 4: THE SIFTER (SELECTING TARGETS) ---")

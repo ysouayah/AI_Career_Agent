@@ -1,4 +1,5 @@
 from google import genai
+from google.genai import types
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -77,7 +78,7 @@ def scan_inbox():
         print("Please check that your key is named exactly 'GEMINI_API_KEY = \"your_key\"' in the file.")
         return
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(api_version="v1beta"))
     
     for msg in messages:
         msg_id = msg['id']
