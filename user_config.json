@@ -64,7 +64,9 @@
     "Research Associate",
     "Program Associate",
     "Monitoring and Evaluation Analyst",
-    "Legal Assistant"
+    "Legal Assistant",
+    "Legislative Aide",
+    "Legislative Affairs"
   ],
   "search_titles_excluded": [
     "Quantitative Analyst",
@@ -99,12 +101,16 @@
     {"company": "Hewlett Packard Enterprise", "title": "Data Science Graduate"},
     {"company": "Management Solutions", "title": "Data Science Consultant"},
     {"company": "Beghou", "title": "Associate Consultant"},
-    {"company": "MathWorks", "title": "Engineering Development Group"},
+    {"company": "MathWorks", "title": "Associate in Engineering Development Group"},
     {"company": "Veeva Systems", "title": "Associate Business Consultant"},
     {"company": "CarGurus", "title": "Associate Marketing Data Analyst"},
     {"company": "Veeva Systems", "title": "Associate Consultant - Entry-Level Technology Consulting"},
     {"company": "Kx Advisors", "title": "Associate Consultant"},
     {"company": "The Cadmus Group", "title": "Water Policy Junior Analyst"},
-    {"company": "Vital Strategy Group", "title": "Associate Consultant"}
+    {"company": "Vital Strategy Group", "title": "Associate Consultant"},
+    {"company": "Bluefield Research", "title": "Strategy Consultant (Analyst), Water Industry"},
+    {"company": "Massachusetts Department of Transportation", "title": "Legislative Affairs Co-op"},
+    {"company": "Massachusetts Department of Transportation", "title": "Public Involvement Co-op"},
+    {"company": "IQVIA", "title": "Advisory Services"}
   ]
 }
