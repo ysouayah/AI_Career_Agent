@@ -235,13 +235,88 @@ def found_by(job):
     return job.get("found_by") or "title_search"
 
 
-def sifter_pool(jobs):
-    """The most relevant SIFTER_CAP jobs, by title alone."""
+CORE_MIN_SLOTS = 3    # Sifter slots each core search title is guaranteed, if it found that many
+CORE_RESERVE_CAP = 20 # most slots reserved per run, across all core titles
+
+
+def _query_key(job):
+    return (job.get("query_matched") or "").strip().lower()
+
+
+def sifter_pool(jobs, core_titles=(), excluded_titles=()):
+    """The most relevant SIFTER_CAP jobs, by title alone -- except that each core search title
+    keeps up to CORE_MIN_SLOTS of its own cards (by query_matched), because relevance() only
+    knows data/consulting words and a "Legal Assistant" search scores 0 on every card.
+    Reserved cards replace the lowest-ranked tail of the top SIFTER_CAP and go at the end,
+    so the order among everything else is unchanged."""
     jobs.sort(key=relevance, reverse=True)
-    if len(jobs) > SIFTER_CAP:
-        print(f"Capping Sifter input to the {SIFTER_CAP} most relevant of {len(jobs)} titles.")
-        jobs = jobs[:SIFTER_CAP]
-    return jobs
+    if len(jobs) <= SIFTER_CAP:
+        return jobs
+    print(f"Capping Sifter input to the {SIFTER_CAP} most relevant of {len(jobs)} titles.")
+    top, rest = jobs[:SIFTER_CAP], jobs[SIFTER_CAP:]
+
+    excluded = {t.strip().lower() for t in excluded_titles}
+    core = []
+    for t in core_titles:
+        k = str(t).strip().lower()
+        if k and k not in excluded and k not in core:
+            core.append(k)
+    in_top = {k: 0 for k in core}
+    for j in top:
+        if _query_key(j) in in_top:
+            in_top[_query_key(j)] += 1
+
+    # Each title's own best cards outside the top, in relevance then board order; never senior.
+    queues = {k: [j for j in rest if _query_key(j) == k and not is_senior_title(j.get("title"))]
+                 [:max(0, CORE_MIN_SLOTS - in_top[k])] for k in core}
+    reserved = []
+    while len(reserved) < CORE_RESERVE_CAP and any(queues.values()):
+        for k in core:   # round-robin, one card per title per round
+            if queues[k] and len(reserved) < CORE_RESERVE_CAP:
+                reserved.append(queues[k].pop(0))
+    if not reserved:
+        return top
+
+    # Displace from the bottom up, skipping any card that holds a core title's own minimum.
+    keep, displaced = list(top), []
+    for j in reversed(top):
+        if len(displaced) == len(reserved):
+            break
+        k = _query_key(j)
+        if k in in_top and in_top[k] <= CORE_MIN_SLOTS:
+            continue
+        keep.remove(j)
+        displaced.append(j)
+        if k in in_top:
+            in_top[k] -= 1
+    reserved = reserved[:len(displaced)]
+
+    by_title = {}
+    for j in reserved:
+        by_title[j.get("query_matched")] = by_title.get(j.get("query_matched"), 0) + 1
+    print(f"Reserved {len(reserved)} Sifter slot(s) for core titles: {by_title}")
+    for j in displaced:
+        print(f"   displaced: {j.get('company', '?')} | {(j.get('title') or '?')[:60]} "
+              f"(relevance {relevance(j)}, from '{j.get('query_matched', '?')}')")
+    return keep + reserved
+
+
+def print_stage_counts(stages):
+    """Cards per search title at each card stage. Log only -- never goes into a prompt."""
+    names = [name for name, _ in stages]
+    counts = []
+    for _, jobs in stages:
+        c = {}
+        for j in jobs:
+            q = j.get("query_matched") or "?"
+            c[q] = c.get(q, 0) + 1
+        counts.append(c)
+    titles = list(dict.fromkeys(q for c in counts for q in c))
+    width = max([len(t) for t in titles] + [12])
+    print("\nCards per search title at each stage:")
+    print("   " + "title".ljust(width) + "".join(n.rjust(10) for n in names))
+    for t in titles:
+        print("   " + t[:width].ljust(width) + "".join(str(c.get(t, 0)).rjust(10) for c in counts))
 
 
 # ------------------------------------------------------------------------------------------
@@ -1176,6 +1251,7 @@ def main():
         for name in already_applied:
             print(f"   - {name}")
     print(f"Total FRESH jobs for evaluation: {len(fresh_jobs)}")
+    stages = [("raw", raw_jobs), ("fresh", fresh_jobs)]   # per-title counts, log only
     if collapsed:
         print(f"Note: {collapsed} jobs had no recoverable company/title; deduplicated by URL instead.")
     print(f"Memory state: {memory_stats()}")
@@ -1190,6 +1266,7 @@ def main():
     before = len(fresh_jobs)
     fresh_jobs = [j for j in fresh_jobs if location_ok(j)]
     print(f"Location check kept {len(fresh_jobs)} of {before} (Massachusetts or remote on the card).")
+    stages.append(("location", fresh_jobs))
     if not fresh_jobs:
         with open("FINAL_STRATEGY.md", "w") as f:
             f.write("# 🎯 Weekly AI Job Strategy\n\nNo Massachusetts or remote jobs were found this week.")
@@ -1215,7 +1292,10 @@ def main():
     if len(fresh_jobs) < before:
         print(f"Card job-type check removed {before - len(fresh_jobs)} internship/co-op/part-time card(s).")
 
-    fresh_jobs = sifter_pool(fresh_jobs)
+    stages.append(("full-time", fresh_jobs))
+    fresh_jobs = sifter_pool(fresh_jobs, config.get("search_titles_core", []),
+                             config.get("search_titles_excluded", []))
+    stages.append(("top80", fresh_jobs))
 
     # Each job carries an integer id. Models return ids only and never copy a URL, because
     # LLMs mis-pair fields when transcribing large arrays.
@@ -1275,6 +1355,7 @@ def main():
             return
 
     print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
+    print_stage_counts(stages + [("sifter", sifted_jobs)])
     for j in sifted_jobs:
         print(f"   -> [{j['id']}] {j.get('company', '?')} | {(j.get('title') or '?')[:60]} | {j.get('location', '?')}")
     for j in intern_pool:
