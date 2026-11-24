@@ -504,6 +504,41 @@ def scrub_letter(text):
     return SOURCE_CLAIM.sub("", text)
 
 
+# Letters state graduation only. A start month ("available to start in September 2027") gave an
+# employer a reason to screen the candidate out before any conversation, so no letter states one,
+# and none implies the candidate can't start now. The prompt says so; this enforces it.
+_MONTH = (r"(january|february|march|april|may|june|july|august|september|october|november|"
+          r"december|sept?\.?|spring|summer|fall|autumn|winter)")
+START_CLAIM = re.compile(
+    re.escape(EARLIEST_START)
+    + r"|\bavailab\w*\s+(to\s+)?(start|begin|join|commence)\b"
+    + rf"|\bavailab\w*\s+(as\s+of|from|beginning|starting|after|in)\s+(early\s+|late\s+|mid-?)?{_MONTH}"
+    + r"|\bavailab\w*\s+(following|after|upon|once)\b"
+    + r"|\bstart(ing)?\s+date\b"
+    + r"|\b(start|begin|join|commence)\w*\s+(work\w*|employment|full[- ]time|the\s+role|this\s+role|"
+      rf"the\s+position|your\s+team)\s+(in|on|after|from|by|following|upon)\s+(early\s+|late\s+|mid-?|my\s+)?({_MONTH}|graduat)"
+    + r"|\b(start|begin|join)\w*\s+(after|following|upon)\s+(my\s+)?graduat"
+    + r"|\b(cannot|can't|can not|unable\s+to|not\s+able\s+to)\s+(start|begin|join)\b",
+    re.IGNORECASE)
+START_ASK = re.compile(r"\b(start|availab|begin|commence)", re.IGNORECASE)
+
+
+def drop_start_date_sentences(text, notes=None):
+    """Removes every letter sentence that states a start date or when the candidate is available.
+    Graduation sentences ("I graduate in May 2027") and past-tense resume facts stay."""
+    out = []
+    for para in text.split("\n"):
+        kept = []
+        for sent in re.split(r"(?<=[.!?])\s+", para):
+            if sent and START_CLAIM.search(sent):
+                if notes is not None:
+                    notes.append(f'Removed a letter sentence stating a start date: "{sent.strip()}"')
+                continue
+            kept.append(sent)
+        out.append(" ".join(kept))
+    return "\n".join(out)
+
+
 # ==========================================
 # 3c. WHAT THE POSTING ASKS FOR
 # ==========================================
@@ -1004,6 +1039,11 @@ def letter_requirements(asks, notes):
     lines = ["- THE POSTING TELLS APPLICANTS WHAT TO STATE. Answer every item below explicitly,",
              "      each in a plain sentence a reader could point to:"]
     lines += [f'      {i}. {a["ask"]} (posting: "{a["quote"]}")' for i, a in enumerate(items, 1)]
+    if any(START_ASK.search(a["ask"]) for a in items):
+        lines.append(f"      Start date or availability: answer only that the candidate graduates in "
+                     f"{GRADUATION}. Never name a start month or date.")
+        notes.append(f"Posting asks for your start date or availability; the letter gives only "
+                     f"graduation ({GRADUATION}). Answer it yourself if needed.")
     if "location" in kinds and location:
         lines.append(f"      Location preference: the candidate is based in {location} and prefers {city}.")
     if "practice_or_team" in kinds:
@@ -1117,19 +1157,18 @@ def build_package(client, job, label, output_dir, resume_text, notes=None):
     job_title = (job.get("title") or job.get("job_title")
                  or (card[0] if card else "") or "Unknown Role").strip()
 
-    # A role hiring for a later cohort already expects a post-graduation start; anything else
-    # gets the start date stated plainly, so nobody is surprised three rounds in.
-    track = (job.get("requirements") or {}).get("hiring_track")
-    availability_rule = ("" if track == "campus_cohort" else
-        f"- State once, plainly, that the candidate graduates in {GRADUATION} and is available "
-        f"to start in {EARLIEST_START}.")
+    # Letters state graduation and never a start date: "available to start in September" gave
+    # employers a reason to screen the candidate out early. drop_start_date_sentences enforces it.
+    no_start = ("Do not state a start date, a start month or season, or when the candidate is "
+                "available, and do not suggest the candidate cannot start right away.")
+    availability_rule = (f"- State once, plainly, that the candidate graduates in {GRADUATION}. "
+                         f"{no_start}")
     if job.get("track") == "internship":
-        # A spring internship starts before graduation; the September date would contradict it.
         availability_rule = (
             f"- This is an application for a Spring {GRAD_YEAR} INTERNSHIP that the posting says can lead to "
             f"a full-time role. State once, plainly, that the candidate is applying for the spring "
             f"internship, graduates in {GRADUATION}, and hopes to grow it into the full-time role. "
-            f"Do not mention {EARLIEST_START} and do not state any weekly hours or part-time schedule.")
+            f"{no_start} Do not state any weekly hours or part-time schedule.")
 
     master_doc = number_master(parse_resume(resume_text))
 
@@ -1248,6 +1287,7 @@ def build_package(client, job, label, output_dir, resume_text, notes=None):
             letter_text = clean_llm_artifacts(parts[2]).strip() if len(parts) > 2 else res.text
             letter_text = scrub_letter(letter_text)
             letter_text = enforce_letter_asks(client, letter_text, asks, requirements, resume_text, notes)
+            letter_text = drop_start_date_sentences(letter_text, notes)
 
             clean_comp = re.sub(r'[^\w\s-]', '', company).strip().replace(' ', '_')
             stem = os.path.join(output_dir, f"{label}_{clean_comp}")

@@ -82,6 +82,8 @@ jobs:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         EMAIL_USER: ${{ secrets.EMAIL_USER }}
         EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
+        USAJOBS_EMAIL: ${{ secrets.USAJOBS_EMAIL }}
       run: python run_everything.py
 
     - name: Commit Updated Memory Bank

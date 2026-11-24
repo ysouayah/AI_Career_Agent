@@ -301,20 +301,29 @@ def sifter_pool(jobs, core_titles=(), excluded_titles=()):
     return keep + reserved
 
 
-def print_stage_counts(stages):
-    """Cards per search title at each card stage. Log only -- never goes into a prompt."""
+SOURCE_FILES = (("Handshake", "handshake_jobs.json"), ("LinkedIn", "linkedin_jobs.json"),
+                ("Indeed", "indeed_jobs.json"), ("USAJobs", "usajobs_jobs.json"),
+                ("MassCareers", "masscareers_jobs.json"))
+# Sources that write <prefix>_status.json; a failed one gets a warning line in the report.
+SOURCE_STATUS = (("USAJobs", "usajobs_status.json"), ("MassCareers", "masscareers_status.json"))
+
+
+def print_stage_counts(stages, key="query_matched"):
+    """Cards per search title (or per source, key="source") at each card stage. Log only --
+    never goes into a prompt."""
     names = [name for name, _ in stages]
     counts = []
     for _, jobs in stages:
         c = {}
         for j in jobs:
-            q = j.get("query_matched") or "?"
+            q = j.get(key) or "?"
             c[q] = c.get(q, 0) + 1
         counts.append(c)
     titles = list(dict.fromkeys(q for c in counts for q in c))
     width = max([len(t) for t in titles] + [12])
-    print("\nCards per search title at each stage:")
-    print("   " + "title".ljust(width) + "".join(n.rjust(10) for n in names))
+    label = "source" if key == "source" else "title"
+    print(f"\nCards per {'source' if key == 'source' else 'search title'} at each stage:")
+    print("   " + label.ljust(width) + "".join(n.rjust(10) for n in names))
     for t in titles:
         print("   " + t[:width].ljust(width) + "".join(str(c.get(t, 0)).rjust(10) for c in counts))
 
@@ -594,7 +603,9 @@ CLOSED_PHRASES = ("no longer accepting applications", "this job has expired", "j
                   # Lever / Workday / generic ATS wording
                   "this position is no longer available", "this posting is no longer available",
                   "this requisition is no longer", "the page you are looking for doesn't exist",
-                  "position is closed", "job is no longer open")
+                  "position is closed", "job is no longer open",
+                  # USAJobs announcement pages
+                  "this job announcement has closed")
 
 
 def link_for(j):
@@ -1214,18 +1225,23 @@ def main():
     run_script("handshake_extractor.py")
     run_script("linkedin_extractor.py")
     run_script("indeed_extractor.py")
+    run_script("usajobs_extractor.py")
+    run_script("masscareers_extractor.py")
 
     # --- PHASE 3: Compile, deduplicate, check memory ---
     print("\n--- COMPILING & FILTERING JOB DATA ---")
     from database_manager import init_db, is_job_seen, mark_job_rejected, mark_job_packaged, memory_stats
     init_db()
 
-    raw_jobs = []
-    for file in ["handshake_jobs.json", "linkedin_jobs.json", "indeed_jobs.json"]:
+    raw_jobs, source_counts = [], {}
+    for source, file in SOURCE_FILES:
         if os.path.exists(file):
             with open(file, "r") as f:
-                raw_jobs.extend(json.load(f))
-    print(f"Total raw jobs scraped: {len(raw_jobs)}")
+                loaded = json.load(f)
+            raw_jobs.extend(loaded)
+            source_counts[source] = len(loaded)
+    print(f"Total raw jobs scraped: {len(raw_jobs)} "
+          f"({', '.join(f'{k} {v}' for k, v in source_counts.items())})")
 
     fresh_jobs, seen_signatures, collapsed = [], set(), 0
     already_applied = set()
@@ -1356,6 +1372,7 @@ def main():
 
     print(f"Sifter kept {len(sifted_jobs)} of {len(fresh_jobs)} jobs for deep scraping.")
     print_stage_counts(stages + [("sifter", sifted_jobs)])
+    print_stage_counts(stages + [("sifter", sifted_jobs)], key="source")
     for j in sifted_jobs:
         print(f"   -> [{j['id']}] {j.get('company', '?')} | {(j.get('title') or '?')[:60]} | {j.get('location', '?')}")
     for j in intern_pool:
@@ -1740,6 +1757,16 @@ def main():
                             f"Run `python handshake_auth.py` and update the HANDSHAKE_STATE secret.\n")
     except (FileNotFoundError, json.JSONDecodeError):
         pass
+    for source, file in SOURCE_STATUS:
+        try:
+            with open(file) as f:
+                st = json.load(f)
+            if not st.get("ok"):
+                sections.append(f"> ⚠️ **{source} skipped: {st.get('message', 'unknown problem')}.**\n")
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+    sections.append("_Sources this week (raw cards): "
+                    + " · ".join(f"{k} {v}" for k, v in source_counts.items()) + "_\n")
     if bad_applied:
         sections.append(f"> ⚠️ **{len(bad_applied)} applied_jobs entry(ies) in user_config.json were ignored:** "
                         f"each needs both a company and a title.\n")

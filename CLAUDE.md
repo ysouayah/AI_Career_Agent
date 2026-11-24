@@ -17,7 +17,12 @@ resume, and emails a report plus tailored application packages.
 2. Extractors → `*_jobs.json`: `linkedin_extractor.py`, `indeed_extractor.py` (board-side entry-level +
    full-time filters), `handshake_extractor.py` (needs `handshake_state.json`; see Handshake below).
    Each then runs `internship_titles` as a second, 2-page pass (board internship filter) and tags
-   those cards `"track": "internship"`
+   those cards `"track": "internship"`. Government sources, no browser (`gov_sources.py` shared):
+   `usajobs_extractor.py` (official API; needs `USAJOBS_API_KEY` + `USAJOBS_EMAIL`, else skipped
+   with a report warning) and `masscareers_extractor.py` (Taleo's public JSON search + detail page).
+   Both keep a card only if its title has every word of the search title (their search is loose),
+   carry the full description (`prefilled`, so deep_scraper skips them), write `*_status.json`, and
+   always exit 0
 3. Card stage in run_everything: normalize cards (Handshake has its own layout), drop jobs listed
    in `applied_jobs` (`applied_match`; named in one closing line of the report), location check,
    card job-type check, relevance ranking, cap to the top 80 for the sifter. Internship cards
@@ -62,7 +67,8 @@ python handshake_auth.py                    # refresh Handshake session (opens a
 python update_tracker.py                    # agent_log.csv -> agent_tracker.xlsx (needs openpyxl, not in requirements.txt)
 ```
 
-- Secrets locally: `.streamlit/secrets.toml` with `GEMINI_API_KEY`, `EMAIL_USER`, `EMAIL_PASS`; every
+- Secrets locally: `.streamlit/secrets.toml` with `GEMINI_API_KEY`, `EMAIL_USER`, `EMAIL_PASS`,
+  `USAJOBS_API_KEY`, `USAJOBS_EMAIL`; every
   script loads that path into the environment. In CI the env vars do the work.
 - A full local run is not a dry run: it writes `memory_bank.db`, appends to `agent_log.csv` and
   `postings.jsonl`, wipes `application_packages/`, and emails the report if `EMAIL_USER`/`EMAIL_PASS`
@@ -98,7 +104,7 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
   or remote, same as full-time. "Must return to school after" is filtered. A job an internship
   search found that is really full-time is left out of memory, so it never goes on cooldown. Report
   section: "Spring internships with a path to full-time"; letters state the spring internship and
-  graduation, never the September date.
+  graduation.
 - **Closed postings:** check the employer's own link. Handshake keeps listings open after the
   employer closes them, so Handshake jobs are checked at `external_url` when one was found.
 
@@ -106,7 +112,9 @@ python update_tracker.py                    # agent_log.csv -> agent_tracker.xls
 - `master_resume.md` is the single source of truth. Never add a fact, number, tool or claim that
   isn't in it. `ground_resume()` strips unsourced filler, restores dropped metrics, flags new numbers.
 - Entries stay in reverse-chronological order; output must be one page.
-- Cover letters open "Dear Hiring Team", state availability once, never self-grade.
+- Cover letters open "Dear Hiring Team", state graduation once, never self-grade. **No letter states
+  a start date or availability** (it got him screened out); `drop_start_date_sentences` removes any
+  such sentence and notes it. `earliest_start` is for the grader's timing caps only.
 - **Selection is by id.** Every master entry (E#), bullet (B#) and skills line (S#) is numbered.
   `plan_selection` has the model sort entries into core / supporting / off_target for the role and
   rank bullets; code decides what is kept. Off-target entries are left out while the rest still

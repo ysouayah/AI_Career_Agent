@@ -64,6 +64,31 @@ def keep_unscraped(job, results, why):
     job["scrape_error"] = why
     results.append(job)
 
+PUBLIC_SOURCES = ("LinkedIn", "Indeed", "USAJobs", "MassCareers")
+
+
+def route(jobs, deep_results):
+    """(handshake_jobs, public_jobs). USAJobs and MassCareers jobs whose extractor already read the
+    full posting pass straight into deep_results. A job from a source this file doesn't know is
+    kept for retry with a printed line, never silently dropped."""
+    handshake_jobs, public_jobs = [], []
+    for j in jobs:
+        src = j.get('source')
+        if j.get('prefilled') and len(j.get('full_description') or "") >= 500:
+            deep_results.append(j)
+        elif src == 'Handshake':
+            handshake_jobs.append(j)
+        elif src in PUBLIC_SOURCES:
+            public_jobs.append(j)
+        else:
+            print(f"   [!] Unknown source '{src}' for {j.get('url')}; kept for retry.")
+            keep_unscraped(j, deep_results, f"unknown source {src}")
+    if deep_results:
+        print(f"-> {sum(1 for j in deep_results if j.get('prefilled'))} job(s) already carry the full "
+              f"posting from their source (USAJobs/MassCareers); not re-scraped.")
+    return handshake_jobs, public_jobs
+
+
 async def scrape_deep_links():
     try:
         with open("sifted_jobs.json", "r") as f:
@@ -74,11 +99,8 @@ async def scrape_deep_links():
 
     print(f"\n[Deep Scraper] Initiating deep dive on {len(jobs)} high-priority targets...")
     
-    # Split the jobs because Handshake needs authentication, the others need anonymity
-    handshake_jobs = [j for j in jobs if j.get('source') == 'Handshake']
-    public_jobs = [j for j in jobs if j.get('source') in ['LinkedIn', 'Indeed']]
-
     deep_results = []
+    handshake_jobs, public_jobs = route(jobs, deep_results)
 
     async with Stealth().use_async(async_playwright()) as p:
         browser = await p.chromium.launch(headless=True)
@@ -135,7 +157,7 @@ async def scrape_deep_links():
                 print(f"   [!] {still_collapsed} Handshake description(s) could not be expanded.")
             await context_hs.close()
 
-        # 2. Process LinkedIn/Indeed Jobs (Anonymous)
+        # 2. Process LinkedIn/Indeed (and USAJobs/MassCareers without a description) anonymously
         if public_jobs:
             print("-> Unlocking public deep links (giving servers time to breathe)...")
             context_pub = await browser.new_context(viewport={'width': 1920, 'height': 1080})
