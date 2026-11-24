@@ -66,7 +66,8 @@
     "Monitoring and Evaluation Analyst",
     "Legal Assistant",
     "Legislative Aide",
-    "Legislative Affairs"
+    "Legislative Affairs",
+    "Program Analyst"
   ],
   "search_titles_excluded": [
     "Quantitative Analyst",
@@ -113,6 +114,7 @@
     {"company": "Massachusetts Department of Transportation", "title": "Public Involvement Co-op"},
     {"company": "IQVIA", "title": "Advisory Services"},
     {"company": "IQVIA", "title": "Market Access Strategy Consulting"},
-    {"company": "Mathematica", "title": "Human Services Research Analyst"}
+    {"company": "Mathematica", "title": "Human Services Research Analyst"},
+    {"company": "Air Force Civilian Career Training", "title": "Operations Research Analyst"}
   ]
 }
